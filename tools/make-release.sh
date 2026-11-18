@@ -1,15 +1,22 @@
 #!/bin/bash
 # Release archives: build/release/ToasterSwitcher-<version>.lha (stored, tools/mklha.py) and .zip with, for each
-# architecture, the Switcher, PluginInfo and the Plugins drawer; the README and prefs example from dist/; and an LGPL
+# architecture, the Switcher, PluginInfo, the Plugins drawer and uvc.class; the README and prefs example from dist/;
+# the change uvc.class was built with (UVC drawer); and an LGPL
 # drawer (FFmpeg's licence, build configuration and AROS patch, and the switcher's object files with their link
-# commands, for relinking against another FFmpeg). Needs make ffmpeg-x86_64 and make ffmpeg-i386 done before.
+# commands, for relinking against another FFmpeg). Needs make ffmpeg-x86_64 and make ffmpeg-i386 done before, and
+# UVC_CLASS_x86_64, UVC_CLASS_i386 and UVC_DIFF (see the Makefile; "make release" passes them on).
 # Nothing of a Video Toaster installation goes in: whoever runs the Switcher brings their own.
 set -eu
 R=$(cd "$(dirname "$0")/.." && pwd)
 cd "$R"
 V=$(sed -n 's/.*\$VER: Switcher \([0-9.]*\) .*/\1/p' src/aros/main.c)
 D=build/release/ToasterSwitcher
-rm -rf build/release; mkdir -p $D/LGPL
+for A in x86_64 i386; do
+  U=UVC_CLASS_$A
+  [ -f "${!U:-}" ] || { echo "no uvc.class for $A: set $U"; exit 1; }
+done
+[ -f "${UVC_DIFF:-}" ] || { echo "no change for uvc.class: set UVC_DIFF"; exit 1; }
+rm -rf build/release; mkdir -p $D/LGPL $D/UVC
 for A in x86_64 i386; do
   [ -e build/ffmpeg-aros-$A/ffmpeg-aros.diff ] || { echo "no FFmpeg for $A: make ffmpeg-$A"; exit 1; }
 done
@@ -19,6 +26,8 @@ for A in x86_64 i386; do
   mkdir -p $D/$A/Plugins $D/LGPL/objects-$A
   cp build/aros-$A/Switcher build/aros-$A/PluginInfo $D/$A/
   cp build/aros-$A/Plugins/*.tsplugin $D/$A/Plugins/
+  U=UVC_CLASS_$A
+  cp "${!U}" $D/$A/uvc.class
   # the same compile as the Makefile, one object per source, and the link that makes Switcher from them
   CMD=$(make -n -B aros-$A | grep -- '-o build/aros-'$A'/Switcher')
   SRCS=$(echo "$CMD" | tr ' ' '\n' | grep '\.c$')
@@ -49,6 +58,7 @@ objects-<arch>/ holds the switcher's own object files; link.txt is the command t
 FFmpeg's libraries into Switcher (put your own SDK and FFmpeg where it says <AROS SDK> and <FFmpeg>), so it can be
 relinked against a modified FFmpeg.
 EOT
+cp "$UVC_DIFF" $D/UVC/uvc.class-vhi.diff
 cp dist/README dist/Inputs.example LICENSE $D/
 (cd build/release && python3 "$R/tools/mklha.py" ToasterSwitcher-$V.lha ToasterSwitcher && zip -qr ToasterSwitcher-$V.zip ToasterSwitcher)
 ls -la build/release/ToasterSwitcher-$V.lha build/release/ToasterSwitcher-$V.zip

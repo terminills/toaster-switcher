@@ -18,7 +18,7 @@ Building (on Linux, with an AROS cross compiler and SDK):
   `FFMPEG_DIFF = <AROS contrib>/MultiMedia/libs/ffmpeg/ffmpeg-8.1.2-aros.diff`.
 - `make ffmpeg-x86_64` once (FFmpeg as a static library, LGPL parts only; without it the Switcher is built without file
   streams), then `make` for `build/aros-x86_64/`: `Switcher`, `PluginInfo` and `Plugins/*.tsplugin`. `make ffmpeg-i386`
-  and `make aros-i386` for i386. `tools/make-release.sh` packs both into `build/release/`.
+  and `make aros-i386` for i386. `make release` packs both into `build/release/`.
 - `make check` runs the plug-ins' JPEG encoder against libjpeg on the host; `make host` builds `build/host/swpng`, which
   renders the panel to a PNG without AROS.
 

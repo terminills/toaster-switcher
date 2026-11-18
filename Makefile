@@ -2,6 +2,7 @@
 #   make            AROS x86_64 (build/aros-x86_64/Switcher, PluginInfo and Plugins/)
 #   make aros-i386  AROS i386
 #   make ffmpeg-x86_64, make ffmpeg-i386   FFmpeg for the file streams and the recorder, once, before the above
+#   make release    build/release/ToasterSwitcher-<version>.lha and .zip (tools/make-release.sh)
 #   make host       host check tool build/host/swpng (renders the display to a PNG)
 #   make check      the plug-ins' JPEG encoder against libjpeg
 # SDK_<arch> is an AROS SDK (the AROS/Developer drawer of a build or of an installed system) and CROSS_<arch> the
@@ -16,6 +17,11 @@ CROSS_i386   ?= i386-aros-
 own_ffmpeg = $(if $(wildcard $(CURDIR)/build/ffmpeg-aros-$(1)/lib/libavcodec.a),$(CURDIR)/build/ffmpeg-aros-$(1))
 FFMPEG_x86_64 ?= $(call own_ffmpeg,x86_64)
 FFMPEG_i386 ?= $(call own_ffmpeg,i386)
+# What a release carries for USB cameras while AROS's own uvc.class has no VHI library for each camera yet: that
+# class built with the change (UVC_CLASS_<arch>), and the change against AROS's source (UVC_DIFF).
+UVC_CLASS_x86_64 ?=
+UVC_CLASS_i386 ?=
+UVC_DIFF ?=
 FFLIBS = -lavformat -lavcodec -lswscale -lswresample -lavutil
 FFDEPS_i386 = -latomic
 
@@ -26,7 +32,7 @@ CFLAGS_AROS = -std=gnu99 -O2 -Wall -Wextra -Werror -Iinclude
 # what is built is stripped the way AROS strips its own programs
 STRIPFLAGS = --strip-unneeded -R.comment
 
-.PHONY: all aros-x86_64 aros-i386 ffmpeg-x86_64 ffmpeg-i386 test-plugins-x86_64 test-plugins-i386 host check clean
+.PHONY: all aros-x86_64 aros-i386 ffmpeg-x86_64 ffmpeg-i386 test-plugins-x86_64 test-plugins-i386 release host check clean
 all: aros-x86_64
 
 # The plug-ins: each a library of its own for Toaster:Plugins, between the two halves of the frame
@@ -71,6 +77,9 @@ ffmpeg-$(1):
 endef
 $(eval $(call aros_target,x86_64))
 $(eval $(call aros_target,i386))
+
+release:
+	UVC_CLASS_x86_64=$(UVC_CLASS_x86_64) UVC_CLASS_i386=$(UVC_CLASS_i386) UVC_DIFF=$(UVC_DIFF) tools/make-release.sh
 
 host: build/host/swpng
 build/host/swpng: tools/swpng.c $(CORE) $(HDRS)

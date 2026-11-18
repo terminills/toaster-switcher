@@ -12,7 +12,8 @@ What you need
   * AROS x86_64 or i386 as of November 2026 or later (stdc.library 0.53): this release was built
     with the SDKs of AROS master and calls C library functions an older system does not have.
     Do not use it there; build the Switcher from its source with that system's SDK instead.
-    USB cameras and capture dongles need a VHI driver (uvc.library); sound needs AHI.
+    USB cameras and capture dongles need the uvc.class of this archive (see Cameras); sound
+    needs AHI.
   * A Video Toaster 4.x installation (not part of this archive), assigned as Toaster:
       Toaster:Programs/Switcher.main.AA                  the "Toasterless" switcher build
                                                          (Aminet VT42-Toasterless); its panel
@@ -31,8 +32,8 @@ Starting
            [PROJECT <project>] [STATS]
 
   SCALE 2 doubles the panel when the screen has room for it and the monitors beside it.
-  A stream is "vhi:uvc.library:<n>" (input n of a VHI driver), "file:<path>:0", or a plug-in's
-  ("bars::0").
+  A stream is "vhi:uvc:<n>" (USB camera or capture device n, the first is 0), "file:<path>:0",
+  or a plug-in's ("bars::0").
   Without settings, inputs 1-4 take the cameras found, then the driver's test pattern.
 
 
@@ -104,6 +105,23 @@ Plug-ins
   interface is listed as such and not used.
 
 
+Cameras
+-------
+  USB cameras and capture dongles (USB Video Class) come in through AROS's uvc.class and the
+  VHI library it makes for each device it finds: uvc0.vhi, uvc1.vhi, ... The uvc.class of AROS
+  itself does not make these yet (as of November 2026), so this archive carries one that does:
+
+      Copy x86_64/uvc.class or i386/uvc.class to SYS:Classes/USB/uvc.class (keep the old one
+      under another name outside that drawer) and restart.
+
+  It is the uvc.class of AROS as of 17.11.2026 with one change, built like the Switcher; the
+  change is UVC/uvc.class-vhi.diff, under the AROS Public License like the class. It is here
+  until AROS has its own; then use that one.
+
+  The devices are streams "vhi:uvc:0", "vhi:uvc:1", ... and are in the Inputs window's list
+  under their names. Settings saved with "vhi:uvc.library:<n>" still work.
+
+
 Monitors
 --------
   The Program / Preview window shows both buses; Program carries the sound level meter.
@@ -111,16 +129,23 @@ Monitors
 
 Known limits
 ------------
-  * While a USB camera is grabbed through uvc.library, the system stalls for most of each
-    camera frame, so file streams and sound stutter while a camera is on a bus. They are smooth
-    without one. This is in the UVC driver, not in the switcher.
+  * Cameras were tested in an emulator only (QEMU, the USB devices of the host passed
+    through), not on a real machine. There, an HDMI capture dongle (bulk transfers) gave a
+    steady 10 pictures a second at 640x480 with every other stream at full rate. A webcam
+    (isochronous transfers) gave a picture but slowed the whole system down to a few pictures
+    in five seconds for as long as it was an input: other programs slowed with it, so it is
+    below the switcher. What a real machine does is not measured for this release.
+  * On x86_64 (the SMP system, two processors) with the webcam and the dongle both as inputs,
+    the whole system stopped after three to five minutes in two of three emulator runs. It
+    stopped in the AROS kernel, both processors waiting for the scheduler's lock; that is a
+    fault of the system, not of the switcher. Runs with the dongle alone, or on i386, ended
+    normally (they were 70 to 90 seconds long).
   * ALGO effects are drawn from their parameters; a few behaviours are reconstructed, not taken
     from NewTek's code (mode 5 effects run out and back in). The 10/12-plane bars, "art card
     key" and the glitch/kinescope overlays fall back to a dissolve or do nothing.
   * All, Programs, Views and play on Preview are not functional.
   * Camera sound comes from the camera's own USB audio (its AHI recording mode, e.g. "UGREEN
-    Camera 2K: 16 bit stereo++"), but while uvc.library grabs a camera's pictures that camera's
-    sound stops; it records fine on its own. Also in the UVC driver.
+    Camera 2K: 16 bit stereo++"). It was not tested with this release.
 
 
 FFmpeg
