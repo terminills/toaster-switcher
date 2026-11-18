@@ -118,10 +118,6 @@ Known limits
     from NewTek's code (mode 5 effects run out and back in). The 10/12-plane bars, "art card
     key" and the glitch/kinescope overlays fall back to a dissolve or do nothing.
   * All, Programs, Views and play on Preview are not functional.
-  * On x86_64 builds of AROS master made with gcc 10, reqtools' file requester opens as a
-    title bar only ("Add file...", Tools, Save project). That is in reqtools.library, not in
-    the Switcher; streams can be typed into "Add stream..." meanwhile. i386 builds are not
-    affected.
   * Camera sound comes from the camera's own USB audio (its AHI recording mode, e.g. "UGREEN
     Camera 2K: 16 bit stereo++"), but while uvc.library grabs a camera's pictures that camera's
     sound stops; it records fine on its own. Also in the UVC driver.
