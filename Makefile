@@ -4,7 +4,7 @@
 #   make ffmpeg-x86_64, make ffmpeg-i386   FFmpeg for the file streams and the recorder, once, before the above
 #   make release    build/release/ToasterSwitcher-<version>.lha and .zip (tools/make-release.sh)
 #   make host       host check tool build/host/swpng (renders the display to a PNG)
-#   make check      the plug-ins' JPEG encoder against libjpeg
+#   make check      the plug-ins' JPEG encoder against libjpeg, and CG pages as croutons
 # SDK_<arch> is an AROS SDK (the AROS/Developer drawer of a build or of an installed system) and CROSS_<arch> the
 # compiler prefix (.../x86_64-aros-). Give them on the command line or in local.mk, which is not in the repository.
 -include local.mk
@@ -25,7 +25,7 @@ UVC_DIFF ?=
 FFLIBS = -lavformat -lavcodec -lswscale -lswresample -lavutil
 FFDEPS_i386 = -latomic
 
-CORE   = src/hunkimg.c src/fgrender.c src/effect.c src/gfxfile.c src/skin.c src/editbar.c src/algofx.c src/framestore.c src/croutontags.c
+CORE   = src/hunkimg.c src/fgrender.c src/effect.c src/gfxfile.c src/skin.c src/editbar.c src/algofx.c src/framestore.c src/croutontags.c src/cgpage.c
 AROS_SRC = src/aros/main.c src/aros/project.c src/aros/rexxhost.c src/aros/rexxcmd.c src/aros/rexxedit.c src/aros/rexxreq.c src/aros/inputs.c src/aros/inputswin.c src/aros/controlswin.c src/aros/audioout.c src/aros/sink.c src/aros/record.c src/aros/outputs.c src/aros/plugins.c src/input_vhi.c
 HDRS   = $(wildcard include/*.h)
 CFLAGS_AROS = -std=gnu99 -O2 -Wall -Wextra -Werror -Iinclude
@@ -86,11 +86,15 @@ build/host/swpng: tools/swpng.c $(CORE) $(HDRS)
 	@mkdir -p $(@D)
 	cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude -o $@ tools/swpng.c $(CORE) -lpng -lm
 
-# the plug-ins' JPEG encoder against libjpeg (needs python3 with Pillow)
-check: build/host/jpegtest
+# the plug-ins' JPEG encoder against libjpeg (needs python3 with Pillow), and CG pages as croutons
+check: build/host/jpegtest build/host/pagetest
 	rm -rf build/host/jpeg && mkdir -p build/host/jpeg
 	build/host/jpegtest build/host/jpeg
 	python3 tests/jpegcheck.py build/host/jpeg
+	build/host/pagetest
+build/host/pagetest: tests/pagetest.c $(CORE) $(HDRS)
+	@mkdir -p $(@D)
+	cc -std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Iinclude -o $@ tests/pagetest.c $(CORE) -lm
 build/host/jpegtest: tests/jpegtest.c plugins/jpegenc.c plugins/jpegenc.h
 	@mkdir -p $(@D)
 	cc -std=c99 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -o $@ tests/jpegtest.c plugins/jpegenc.c -lm

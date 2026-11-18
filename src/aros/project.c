@@ -38,7 +38,8 @@ const char *base_name(const char *path)
  * 0 on success. */
 int add_crouton(struct switcher *sw, int at, const char *path, const uint8_t *entry, size_t entrylen, int *ovl)
 {
-    static const char *const tname[] = { "ANIM", "ANIM", "ALGO", "ILBM", "MAIN", "CTRL", "REXX" };
+    static const char *const tname[] = { "ANIM", "ANIM", "ALGO", "ILBM", "MAIN", "CTRL", "REXX", "KEYF", "FRAM", "SCRO",
+                                         "CRAW" };
     struct effect e;
     LONG fl;
     uint8_t *fb;
@@ -64,7 +65,7 @@ int add_crouton(struct switcher *sw, int at, const char *path, const uint8_t *en
         memcpy(e.entry, entry, entrylen);
         e.entrylen = entrylen;
     } else if (!entry) {
-        e.entry = project_entry_new(path, tname[e.type < 7 ? e.type : 0], &e.entrylen);
+        e.entry = project_entry_new(path, tname[e.type < (int)(sizeof(tname) / sizeof(tname[0])) ? e.type : 0], &e.entrylen);
     }
     effect_entry_controls(&e);
     memmove(&sw->fx[at + 1], &sw->fx[at], (sw->nfx - at) * sizeof(e));
@@ -130,8 +131,10 @@ void select_effect(struct switcher *sw, int i, int onair)
     if (i == sw->fxsel || i < 0 || i >= sw->nfx) return;
     if (sw->fxsel >= 0 && sw->fxsel != onair) effect_free_frames(&sw->fx[sw->fxsel]);
     sw->fxsel = i;
+    sw->fxpicks++;
     if (sw->fx[i].ctl_speed >= 0) sw->speed = sw->fx[i].ctl_speed;     /* its own speed, from Controls */
-    effect_frames(&sw->fx[i]);      /* wipe frames, picture or ALGO parameters; what is not understood dissolves */
+    effect_frames(&sw->fx[i]);      /* wipe frames, picture, ALGO parameters or a CG page; what is not understood
+                                     * dissolves */
 }
 /* The selected overlay finished fading: off when it was on air, otherwise on air in place of the previous one. */
 int overlay_done(struct switcher *sw, int onair)

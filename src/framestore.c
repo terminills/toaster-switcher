@@ -15,6 +15,8 @@ void fs_free(struct framestore *fs)
     int s;
     for (s = 0; s < FS_SLOTS; s++) free(fs->still[s]);
     memset(fs->still, 0, sizeof(fs->still));
+    free(fs->dv2);
+    fs->dv2 = NULL;
 }
 
 static uint32_t *slot_buf(struct framestore *fs, int s)
@@ -54,4 +56,22 @@ int fs_load(struct framestore *fs, int s, const uint32_t *rgb, int pw, int ph)
             b[(size_t)y * fs->w + x] = rgb[(size_t)(y * ph / fs->h) * pw + x * pw / fs->w];
     fs->stable[s] = 0;
     return 0;
+}
+
+void fs_page(struct framestore *fs, uint32_t *rgb, int dv1)
+{
+    if (dv1) {
+        if (!fs_load(fs, fs->cur, rgb, fs->w, fs->h)) fs->frozen = 1;
+        free(rgb);
+    } else {
+        free(fs->dv2);
+        fs->dv2 = rgb;
+    }
+}
+
+void fs_live(struct framestore *fs)
+{
+    fs->frozen = 0;
+    free(fs->dv2);
+    fs->dv2 = NULL;
 }

@@ -9,6 +9,7 @@
 #define TAG_VALUE(n) (0x80000000u | (uint32_t)(n))
 #define TAG_TABLE(n) (0x10000000u | (uint32_t)(n))
 #define TAGN_Delay 0x6b
+#define TAGN_Duration 0x6c      /* a CG page: the fields it stays, or takes to play */
 #define TAGN_CommandLine 0x84
 
 /* The tag's number, with *table 1 when it holds a table; 0 for a name that is none. Case does not count. */

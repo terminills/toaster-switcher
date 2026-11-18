@@ -74,7 +74,8 @@ static int save_frame(const struct rxstate *st, const char *name)
     return rc;
 }
 
-/* A picture into the current still, which DV1 then holds. NewTek's own framestore files are not read. */
+/* A picture into the current still, which DV1 then holds: an ILBM, a frame or key page of the CG, or a framestore
+ * file of the Toaster. */
 static int load_frame(const struct rxstate *st, const char *name)
 {
     struct framestore *fs = st->fs;
@@ -89,6 +90,16 @@ static int load_frame(const struct rxstate *st, const char *name)
             rc = 0;
         }
         picture_free(&pic);
+    } else {                            /* a page of the CG, or a framestore file of the Toaster */
+        struct cgpage pg;
+        uint32_t *rgb;
+        if (!cgpage_decode(&pg, fb, len)) {
+            if (pg.w == CGPAGE_W && pg.h == CGPAGE_H && (rgb = cgpage_frame(&pg, fs->w, fs->h))) {
+                fs_page(fs, rgb, 1);
+                rc = fs->frozen ? 0 : -1;
+            }
+            cgpage_free(&pg);
+        }
     }
     free(fb);
     return rc;
@@ -199,7 +210,7 @@ void rxswitcher(const struct rxstate *st, const char *fn, int argc, const char *
         else if (is(c, "NOMO")) fs->stable[fs->cur] = 1;
         o->act = RXA_CHANGED;
     } else if (is(c, "LVID")) {
-        fs->frozen = 0;
+        fs_live(fs);
         o->act = RXA_CHANGED;
     } else if (is(c, "FMLD") || (is(c, "LRGB") && number(a2, &n) && n == 0)) {
         if (load_frame(st, a1)) o->rc = RC_ERROR;
@@ -226,7 +237,11 @@ void rxswitcher(const struct rxstate *st, const char *fn, int argc, const char *
     } else if (is(c, "MEMC") || is(c, "MEMF")) {
         snprintf(o->text, sizeof(o->text), "%lu", (unsigned long)AvailMem((is(c, "MEMC") ? MEMF_CHIP : MEMF_FAST) |
                  (toupper((unsigned char)a1[0]) == 'L' ? MEMF_LARGEST : 0)));
-    } else if (is(c, "CKTP") || is(c, "CKCG") || is(c, "CKLW") || is(c, "GROF")) {
+    } else if (is(c, "CKCG")) {         /* the CG is loaded while its port is there */
+        Forbid();
+        strcpy(o->text, FindPort((CONST_STRPTR)"CG_AREXX") ? "1" : "0");
+        Permit();
+    } else if (is(c, "CKTP") || is(c, "CKLW") || is(c, "GROF")) {
         strcpy(o->text, "0");
     } else {
         o->rc = RC_ERROR;

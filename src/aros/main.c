@@ -35,6 +35,7 @@
 #include <libraries/reqtools.h>
 #include <proto/reqtools.h>
 #include <stdio.h>
+#include <sys/time.h>
 
 /* sw->rgb and the monitor frames hold native 0x00RRGGBB words */
 #if AROS_BIG_ENDIAN
@@ -194,7 +195,7 @@ static void framestore_button(struct switcher *sw, struct framestore *fs, struct
     if (i == TRANS_FREEZE) {
         if (!inputs_grab(in, SLOT_DV1, dvbuf)) fs_freeze(fs, dvbuf);
     } else if (i == TRANS_LIVE) {
-        fs->frozen = 0;
+        fs_live(fs);
     } else if (i >= TRANS_FS1 && i < TRANS_FS1 + FS_SLOTS) {
         fs->cur = i - TRANS_FS1;
     } else if (i == TRANS_STABILIZE) {
@@ -204,10 +205,40 @@ static void framestore_button(struct switcher *sw, struct framestore *fs, struct
     }
     framestore_lights(sw, fs);
 }
+
+/* A scroll or crawl of the CG moves by the clock from when it went to air, in fields (59.94 a second). */
+static struct timeval pagestart;
+static void page_start(void) { gettimeofday(&pagestart, NULL); }
+static long page_fields(void)
+{
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    return (long)(((now.tv_sec - pagestart.tv_sec) * 1000000.0 + (now.tv_usec - pagestart.tv_usec)) * 59.94 / 1000000.0);
+}
+
+/* The selected overlay goes to air or comes off it (overlay_done); a scroll or crawl plays from its start. */
+static int overlay_switch(struct switcher *sw, int onair)
+{
+    onair = overlay_done(sw, onair);
+    if (onair >= 0 && effect_moves(&sw->fx[onair])) page_start();
+    return onair;
+}
+
+/* A frame page of the CG was chosen: its picture goes to the input that is not on Main (the Framestore on DV1, or
+ * DV2), and that input to Preview. */
+static void frame_page(struct switcher *sw, struct framestore *fs, struct effect *e)
+{
+    int slot = sw->row[ROW_MAIN].hilite == SLOT_DV1 ? SLOT_DV2 : SLOT_DV1;
+    uint32_t *rgb = cgpage_frame(e->page, MONW, MONH);
+    effect_free_frames(e);
+    if (!rgb) return;
+    fs_page(fs, rgb, slot == SLOT_DV1);
+    sw->row[ROW_PRVW].hilite = slot;
+}
 #define FRAMEMICROS 20000
 #define SEQHOLD 100             /* Play: a crouton holds 2 s after its transition unless its Controls say otherwise */       /* monitor refresh during a transition */
 
-static const char version[] __attribute__((used)) = "$VER: Switcher 0.6 (18.11.2026)";
+static const char version[] __attribute__((used)) = "$VER: Switcher 0.7 (18.11.2026)";
 
 /* Put a rectangle of the interface display (all of it when rw is 0) into the window. */
 static void show_rect(struct Window *w, struct switcher *sw, int scale, uint32_t *sbuf, int rx, int ry, int rw, int rh)
@@ -242,11 +273,17 @@ static LONG ticks_now(void);
 static volatile int audiomix;           /* the transition's position for the sound thread */
 static volatile int audiolevel[2];      /* Program's left and right peak, from the sound thread */
 
-/* Key overlay e over buf at level 0..MIXMAX; animated overlays loop at 30 frames a second. */
-static void key_overlay(uint32_t *buf, const struct effect *e, int level, LONG now)
+/* Key overlay e over buf at level 0..MIXMAX; animated overlays loop at 30 frames a second, and a CG page that
+ * moves is where it is fields after its start. */
+static void key_overlay(uint32_t *buf, const struct effect *e, int level, LONG now, long fields)
 {
     int f = e->nframes > 1 ? (int)((now * 30 / 50) % e->nframes) : 0, x, y;
     uint32_t matte = e->maincolor >= 1 && e->maincolor <= 8 ? (uint32_t)sw_bgcolor(e->maincolor) : 0;
+    if (e->page) {
+        long pos2 = 0;
+        if (cgpage_at(e->page, fields, &pos2)) cgpage_blend(e->page, pos2, buf, MONW, MONH, level, MIXMAX);
+        return;
+    }
     if (level <= 0 || !e->masks) return;
     for (y = 0; y < MONH; y++)
         for (x = 0; x < MONW; x++) {
@@ -361,8 +398,8 @@ static void show_monitors(struct Window *m, const struct switcher *sw, uint32_t 
     }
     if (sw->row[ROW_LUMKEY].hilite >= 0 && sw->row[ROW_CLIP].hilite != CLIP_OFF)
         lum_key(progbuf, keybuf, sw->row[ROW_CLIP].hilite, sw->keyclip);
-    if (ov) key_overlay(progbuf, ov, ovlevel, now);
-    if (sel > 0) key_overlay(progbuf, FXCUR(sw), sel, now);
+    if (ov) key_overlay(progbuf, ov, ovlevel, now, page_fields());
+    if (sel > 0) key_overlay(progbuf, FXCUR(sw), sel, now, 0);     /* a scroll or crawl starts outside the frame */
     rec_video(progbuf);
     out_video(progbuf);
     if (!m) return;
@@ -428,7 +465,7 @@ int main(void)
     SIPTR args[NARGS];
     struct RDArgs *rda;
     const char *file, *specs[NSLOTS];
-    int scale = 0, done = 0, rc = RETURN_FAIL, sigbit = -1, s, mix = 0, automix = 0, autoticks = 0;
+    int scale = 0, done = 0, rc = RETURN_FAIL, sigbit = -1, s, mix = 0, automix = 0, autoticks = 0, picks;
     int tbdown = 1, dragging = 0, grab = 0, tbx = 0, tby = 0, tbw = 0, tbh = 0, tbarupdate_pending = 0;
     int ovl = -1;                       /* the overlay on air (keyed over Program), or -1 */
     int monback = 0;                    /* the monitors window is behind the Toaster window */
@@ -570,6 +607,7 @@ int main(void)
     rxsw = rexx_open("ToasterARexx.port");
     rxed = rexx_open("PROJECT_REXX_PORT");
 
+    picks = sw.fxpicks;
     while (!done) {
         struct IntuiMessage *m;
         ULONG got = Wait(1UL << w->UserPort->mp_SigBit | (mon ? 1UL << mon->UserPort->mp_SigBit : 0) | 1UL << sigbit |
@@ -606,6 +644,11 @@ int main(void)
                 if (sw.row[ROW_PRVW].hilite == SLOT_DV1) fs_show(&fs, prvwbuf);
                 if (sw.row[ROW_LUMKEY].hilite == SLOT_DV1) fs_show(&fs, keybuf);
             }
+            if (fs.dv2) {                       /* and a frame page DV2 */
+                if (sw.row[ROW_MAIN].hilite == SLOT_DV2) memcpy(mainbuf, fs.dv2, MONW * MONH * 4);
+                if (sw.row[ROW_PRVW].hilite == SLOT_DV2) memcpy(prvwbuf, fs.dv2, MONW * MONH * 4);
+                if (sw.row[ROW_LUMKEY].hilite == SLOT_DV2) memcpy(keybuf, fs.dv2, MONW * MONH * 4);
+            }
             if (named < 2 && (inputs_ready(in) || (!named && n != seq))) {   /* at the first picture, and once all */
                 named = inputs_ready(in) ? 2 : 1;                           /* the inputs have been opened */
                 title_monitors(mon, in, &prefs, sw.row[ROW_MAIN].hilite, sw.row[ROW_PRVW].hilite);
@@ -639,7 +682,7 @@ int main(void)
                 sw.tbarpos = (tbdown ? mix : MIXMAX - mix) * sw.tbartravel / MIXMAX;
                 if (mix == MIXMAX) {            /* transition done: Preview is the new Main, the T-bar stays */
                     if (FXCUR(&sw) && FXCUR(&sw)->overlay) {
-                        ovl = overlay_done(&sw, ovl);
+                        ovl = overlay_switch(&sw, ovl);
                     } else {
                         int t = sw.row[ROW_MAIN].hilite;
                         sw.row[ROW_MAIN].hilite = sw.row[ROW_PRVW].hilite;
@@ -657,6 +700,13 @@ int main(void)
                     show_rect(w, &sw, scale, sbuf, tbx, tby, tbw, tbh);
                 }
             }
+            if (ovl >= 0 && sw.fx[ovl].page && effect_moves(&sw.fx[ovl]) && !mix && !autostart) {
+                long pos2;                      /* a scroll or crawl played once comes off by itself */
+                if (!cgpage_at(sw.fx[ovl].page, page_fields(), &pos2)) {
+                    if (ovl != sw.fxsel) effect_free_frames(&sw.fx[ovl]);
+                    ovl = -1;
+                }
+            }
             show_monitors(mon, &sw, mainbuf, prvwbuf, progbuf, keybuf, mix, ovl);
             audiomix = FXCUR(&sw) && FXCUR(&sw)->overlay ? 0 : mix;    /* an overlay leaves the sound alone */
         }
@@ -667,6 +717,11 @@ int main(void)
                 struct effect *e = &sw.fx[seqpos];
                 int slot = effect_main_slot(e);
                 seqnext = ticks_now() + (e->ctl_hold >= 0 ? e->ctl_hold : SEQHOLD);
+                if (e->ctl_hold < 0 && e->type >= FX_KEYF) {    /* a CG page holds as long as it says */
+                    uint32_t fields = 0;
+                    if (effect_tag(e, TAG_VALUE(TAGN_Duration), &fields, NULL) && fields < 1000000)
+                        seqnext = ticks_now() + fields * 50 / 60;
+                }
                 if (e->type == FX_CTRL) {
                     if (e->ctrl == CTRL_STOP) seqpos = -2;
                 } else if (e->type == FX_REXX) {
@@ -686,7 +741,7 @@ int main(void)
                     autostart = ticks_now();
                     automix = mix;
                     autoticks = effect_ticks(&sw.fx[seqpos], sw.speed, speedticks[sw.speed]) * (MIXMAX - mix) / MIXMAX;
-                    if (autoticks < 1) autoticks = 1;
+                    if (autoticks < 1 || (effect_moves(&sw.fx[seqpos]) && seqpos != ovl)) autoticks = 1;
                     seqnext += autoticks;
                     Signal(FindTask(NULL), 1UL << sigbit);
                 }
@@ -767,8 +822,9 @@ int main(void)
             redraw = 1;                 /* the project or the selection may have changed */
             Signal(FindTask(NULL), 1UL << sigbit);
         }
-        if ((autostart || seqpos >= 0 || rxfrom || rxewaits || rec_active() || out_active()) && !tpending) {
-                                         /* steady redraws during a dissolve, a recording and for the outputs, wake-ups while playing or while a call waits */
+        if ((autostart || seqpos >= 0 || rxfrom || rxewaits || rec_active() || out_active() ||
+             (ovl >= 0 && effect_moves(&sw.fx[ovl]))) && !tpending) {
+                                         /* steady redraws during a dissolve, a scroll or crawl, a recording and for the outputs, wake-ups while playing or while a call waits */
             treq->tr_node.io_Command = TR_ADDREQUEST;
             treq->tr_time.tv_secs = 0;
             treq->tr_time.tv_micro = FRAMEMICROS;
@@ -927,7 +983,7 @@ int main(void)
                         sw.tbarpos = tbdown ? 0 : sw.tbartravel;
                     }
                     if (FXCUR(&sw) && FXCUR(&sw)->overlay) {    /* an overlay is cut on or off instead */
-                        ovl = overlay_done(&sw, ovl);
+                        ovl = overlay_switch(&sw, ovl);
                         redraw = 1;
                         Signal(FindTask(NULL), 1UL << sigbit);
                         break;
@@ -941,6 +997,7 @@ int main(void)
                         const struct effect *fx = FXCUR(&sw);
                         autoticks = (fx ? effect_ticks(fx, sw.speed, speedticks[sw.speed]) : speedticks[sw.speed]) *
                                     (MIXMAX - mix) / MIXMAX;
+                        if (fx && effect_moves(fx) && sw.fxsel != ovl) autoticks = 1;   /* on at once: it comes in by itself */
                     }
                     if (autoticks < 1) autoticks = 1;
                     Signal(FindTask(NULL), 1UL << sigbit);
@@ -960,6 +1017,18 @@ int main(void)
                 title_monitors(mon, in, &prefs, sw.row[ROW_MAIN].hilite, sw.row[ROW_PRVW].hilite);
                 redraw = 1;
                 break;
+            }
+        }
+        if (sw.fxpicks != picks) {
+            picks = sw.fxpicks;
+            if (FXCUR(&sw) && FXCUR(&sw)->type == FX_FRAM && FXCUR(&sw)->page) {
+                frame_page(&sw, &fs, FXCUR(&sw));
+                framestore_lights(&sw, &fs);
+                set_labels(&sw, in, &prefs, &fs);
+                inputs_route(in, sw.row[ROW_MAIN].hilite, sw.row[ROW_PRVW].hilite);
+                title_monitors(mon, in, &prefs, sw.row[ROW_MAIN].hilite, sw.row[ROW_PRVW].hilite);
+                redraw = 1;
+                Signal(FindTask(NULL), 1UL << sigbit);
             }
         }
         if (redraw) {

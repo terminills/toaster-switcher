@@ -19,8 +19,8 @@ Building (on Linux, with an AROS cross compiler and SDK):
 - `make ffmpeg-x86_64` once (FFmpeg as a static library, LGPL parts only; without it the Switcher is built without file
   streams), then `make` for `build/aros-x86_64/`: `Switcher`, `PluginInfo` and `Plugins/*.tsplugin`. `make ffmpeg-i386`
   and `make aros-i386` for i386. `make release` packs both into `build/release/`.
-- `make check` runs the plug-ins' JPEG encoder against libjpeg on the host; `make host` builds `build/host/swpng`, which
-  renders the panel to a PNG without AROS.
+- `make check` runs, on the host, the plug-ins' JPEG encoder against libjpeg and the reader and player of CG pages
+  (`tests/pagetest.c`); `make host` builds `build/host/swpng`, which renders the panel to a PNG without AROS.
 
 Plug-ins: inputs and outputs can be added as small libraries in `Toaster:Plugins`, loaded and replaced while the Switcher
 runs. `include/tsplugin.h` is the interface (with `tsinput.h` and `tsoutput.h`), `plugins/bars.c` the shortest example,

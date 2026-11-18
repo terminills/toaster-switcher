@@ -1,4 +1,4 @@
-Video Toaster Switcher for AROS                                        0.6 (18.11.2026)
+Video Toaster Switcher for AROS                                        0.7 (18.11.2026)
 =========================================================================================
 
 NewTek's Video Toaster 4.x switcher, running natively on AROS (x86_64 and i386) without the
@@ -44,18 +44,43 @@ The panel
   BKG box                  the background colour
   Croutons                 transitions (wipes, ALGO pushes/flips/fly-ins, picture wipes),
                            overlays (keyed over Program until taken off again), video source
-                           croutons (cut that input to Main)
+                           croutons (cut that input to Main), pages of the CG (see CG pages)
   SUPERIMPOSE              luminance key of a source over Program: OFF, key out black, key out
                            white, clip level (upper/lower half of the box: up/down)
   FRAMESTORE (on DV1)      FREEZE holds DV1's picture, LIVE releases it, 1-4 pick a still,
                            STABILIZE line-doubles it, SAVE writes it (24-bit ILBM); right button
-                           on 1-4 loads a picture into that still
-  Editor bar               Delete, Clone, Tools (add croutons), Controls (a crouton's own speed
-                           and Play hold), Save (the project), Play / Stop (run the croutons in
-                           order)
+                           on 1-4 loads a picture into that still. A framestore page of the CG
+                           goes to DV2 while DV1 is on Main
+  Editor bar               Delete, Clone, Tools (add croutons: "Add croutons..." asks for the
+                           files and puts them after the selected one), Controls (a crouton's
+                           own speed and Play hold), Save (the project), Play / Stop (run the
+                           croutons in order)
 
   Keys: I Inputs and Outputs window, M monitors in front of / behind the panel, cursor up/down
         or the wheel scroll the croutons, Esc quits.
+
+
+CG pages
+--------
+  A page of the Toaster's character generator is a crouton. Tools, "Add croutons...", takes
+  the file ToasterCG for AROS (1.0 RC6) writes with Save Page; a script adds one with
+  CROUTONLOAD <file>. What a page does as the selected crouton depends on its kind:
+
+  Key page                 keyed over Program: AUTO fades it on and off, TAKE cuts.
+  Scroll, crawl            on air at once with TAKE or AUTO, moving by the clock at the speed
+                           the page was given. Played once it leaves air by itself; a looping
+                           page starts again; a scroll that ends frozen stays. While it is on
+                           air AUTO fades it off and TAKE cuts it off.
+  Framestore page          selected, it is a still of the Framestore, on DV1 - or on DV2
+                           while DV1 is on Main - and that input becomes Preview, ready for
+                           any transition. LIVE releases it.
+
+  Play holds a page for the time it carries, a scroll or crawl for as long as it takes.
+  ARexx's FMLD takes a page's file as a picture too, and CKCG says whether the CG is loaded.
+
+  Key pages and frames saved by NewTek's own CG (the framestore's own 16 or 18 planes) are
+  read as well. Its scroll and crawl files are not, and are not added: they hold glyphs and
+  lines for code of the Toaster that was not released.
 
 
 Inputs and Outputs window
@@ -143,7 +168,11 @@ Known limits
   * ALGO effects are drawn from their parameters; a few behaviours are reconstructed, not taken
     from NewTek's code (mode 5 effects run out and back in). The 10/12-plane bars, "art card
     key" and the glitch/kinescope overlays fall back to a dissolve or do nothing.
-  * All, Programs, Views and play on Preview are not functional.
+  * All, Views and play on Preview are not functional. Programs lists only what a script
+    added with ADDPROGRAM; the Toaster's own programs are not started from it.
+  * While one of the panel's file requesters is open (Tools "Add croutons...", Save, loading a
+    still) the panel waits for it: Program holds the picture it had and ARexx is not answered
+    until the requester is closed.
   * Camera sound comes from the camera's own USB audio (its AHI recording mode, e.g. "UGREEN
     Camera 2K: 16 bit stereo++"). It was not tested with this release.
 

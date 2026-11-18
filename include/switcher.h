@@ -68,6 +68,7 @@ struct switcher {
     struct effect *fx;          /* the project's croutons, shown in the Editor grid */
     int nfx;
     int fxsel;                  /* selected crouton (the current effect), -1 none */
+    int fxpicks;                /* counts the selections, for what a crouton does when it is chosen */
     int fxtop;                  /* first grid row shown */
     struct editbar bar;         /* the Editor's button bar */
     char inlabel[8][32];        /* sub labels under the input buttons (stream names), "" for none */

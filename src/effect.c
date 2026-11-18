@@ -100,6 +100,10 @@ static uint8_t *ilbm_planes(const uint8_t *d, size_t o, uint32_t len, int *w, in
 #define TAGID_Color 0x80000023u
 #define TAGID_Overlay 0x80000011u
 #define TAGID_Control 0x80000052u
+#define TAGID_Speed 0x8000006au         /* CG pages: a scroll's or crawl's speed, */
+#define TAGID_HoldFields 0x80000087u    /* a scroll that stops with its last line up (any value but 0), */
+#define TAGID_Loop 0x80f70003u          /* and, from ToasterCG for AROS, a page that plays until taken off */
+#define TAGN_Page 0x69                  /* the page itself, for the CG: the tags end here */
 
 /* What the switcher takes from a tag that holds a number. */
 static void tag_apply(struct effect *e, uint32_t id, uint32_t v)
@@ -120,7 +124,7 @@ static void crud_tags(struct effect *e, const uint8_t *d, size_t o, uint32_t len
     size_t end = o + len;
     while (o + 8 <= end) {
         uint32_t id = be32(d + o), v = be32(d + o + 4);
-        if (!id) break;
+        if (!id || (id & 0xffff) == TAGN_Page) break;
         if (id & 0x10000000u) {
             if (id == TAGID_AlgoBlock && o + 8 + v <= end && !e->algoblob && (e->algoblob = malloc(v))) {
                 memcpy(e->algoblob, d + o + 8, v);
@@ -134,25 +138,49 @@ static void crud_tags(struct effect *e, const uint8_t *d, size_t o, uint32_t len
     }
 }
 
+/* A CG page's tags: their length up to the page (the book's page, of no fixed form), which ends them. */
+static uint32_t page_tags(const uint8_t *d, size_t o, uint32_t len)
+{
+    uint32_t at = 0;
+    while (at + 8 <= len) {
+        uint32_t id = be32(d + o + at), v = be32(d + o + at + 4);
+        if (!id || (id & 0xffff) == TAGN_Page) break;
+        at += 8;
+        if (id & 0x10000000u) {
+            if (((v + 3) & ~3u) > len - at) break;
+            at += (v + 3) & ~3u;
+        }
+    }
+    return at;
+}
+
 static void crud_type(struct effect *e, const uint8_t *d, size_t n)
 {
     uint32_t l, tl, gl;
     size_t f = find_form(d, 0, n, "CrUD", &l), t, g;
     static const struct { const char *id; int type; } types[] = {
         { "ANIM", FX_ANIM }, { "ALGO", FX_ALGO }, { "ILBM", FX_ILBM }, { "MAIN", FX_MAIN }, { "CTRL", FX_CTRL },
-        { "REXX", FX_REXX } };
+        { "REXX", FX_REXX }, { "KEYF", FX_KEYF }, { "FRAM", FX_FRAM }, { "SCRO", FX_SCRO }, { "CRAW", FX_CRAW } };
     unsigned i;
     e->type = FX_OTHER;
     if (!f || !(t = find(d, f + 4, f + l, "TYPE", &tl)) || tl < 4) return;
     for (i = 0; i < sizeof(types) / sizeof(types[0]); i++)
         if (!memcmp(d + t, types[i].id, 4)) e->type = types[i].type;
+    if (e->type == FX_KEYF || effect_moves(e)) e->overlay = 1;
     if ((g = find(d, f + 4, f + l, "TAGS", &gl))) {
+        if (e->type >= FX_KEYF) gl = page_tags(d, g, gl);
         crud_tags(e, d, g, gl);
-        if (!e->tags && (e->tags = malloc(gl))) {
+        if (!e->tags && (e->tags = malloc(gl + 1))) {
             memcpy(e->tags, d + g, gl);
             e->tagslen = gl;
         }
     }
+}
+
+/* A FORM ILBM that is 80x50 and deep (24 or 32 planes): BMHD is its first chunk. */
+static int cgpage_icon(const uint8_t *d, size_t n)
+{
+    return n >= 40 && !memcmp(d + 12, "BMHD", 4) && be16(d + 20) == ICON_W && be16(d + 22) == ICON_H && d[28] >= 24;
 }
 
 static void find_icon(struct effect *e, const uint8_t *d, size_t n)
@@ -168,7 +196,20 @@ static void find_icon(struct effect *e, const uint8_t *d, size_t n)
         l = be32(d + f + 4);
         if (f + 8 + l > n) break;
         if (memcmp(d + f, "FORM", 4) || memcmp(d + f + 8, "ILBM", 4)) continue;
-        if (!(raw = ilbm_planes(d, f + 8, l, &w, &h, &np, &cmap, &cl, NULL, NULL))) continue;
+        if (!(raw = ilbm_planes(d, f + 8, l, &w, &h, &np, &cmap, &cl, NULL, NULL))) {
+            struct cgpage pg;           /* a CG page's icon is a deep picture */
+            uint32_t *rgb;
+            if (cgpage_icon(d + f, 8 + (size_t)l) && !cgpage_decode(&pg, d + f, 8 + (size_t)l)) {
+                if ((rgb = cgpage_rgb(&pg))) {
+                    memcpy(e->icon, rgb, sizeof(e->icon));
+                    e->has_icon = 1;
+                    free(rgb);
+                }
+                cgpage_free(&pg);
+                if (e->has_icon) break;
+            }
+            continue;
+        }
         if (w == ICON_W && h == ICON_H && cmap) {
             int rb = ((w + 15) / 16) * 2;
             for (y = 0; y < h; y++)
@@ -413,7 +454,22 @@ int effect_frames(struct effect *e)
     const uint8_t *cmap;
     uint32_t cl;
 
-    if (e->masks || e->algo) return 0;
+    if (e->masks || e->algo || e->page) return 0;
+    if (e->type >= FX_KEYF) {
+        uint32_t v = 0;
+        if (!(e->page = malloc(sizeof(*e->page)))) return -1;
+        if (cgpage_decode(e->page, d, e->filelen)) {
+            free(e->page);
+            e->page = NULL;
+            return -1;
+        }
+        e->page->kind = e->type == FX_SCRO ? CGP_SCROLL : e->type == FX_CRAW ? CGP_CRAWL : CGP_STILL;
+        if (effect_moves(e))
+            e->page->speed2 = cgpage_speed(e->page->kind, effect_tag(e, TAGID_Speed, &v, NULL) ? (int)v : 0);
+        if (effect_tag(e, TAGID_Loop, &v, NULL) && v) e->page->mode = CGP_LOOP;
+        else if (e->type == FX_SCRO && effect_tag(e, TAGID_HoldFields, &v, NULL) && v) e->page->mode = CGP_FREEZE;
+        return 0;
+    }
     if (e->type == FX_ALGO) {
         if (!e->algoblob || !(e->algo = malloc(sizeof(*e->algo)))) return -1;
         if (algofx_parse(e->algo, e->algotype, e->algomode, e->algoblob, e->algobloblen)) {
@@ -597,6 +653,9 @@ void effect_close(struct effect *e)
 
 void effect_free_frames(struct effect *e)
 {
+    if (e->page) cgpage_free(e->page);
+    free(e->page);
+    e->page = NULL;
     free(e->algo);
     e->algo = NULL;
     free(e->masks);

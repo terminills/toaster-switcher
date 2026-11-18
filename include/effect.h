@@ -1,17 +1,19 @@
 /* Toaster croutons (effect files) and projects, read in NewTek's own formats.
  * An effect file is IFF: FORM ANIM (the wipe: 2-plane fields, 0 = matte? 1 = matte, 2 = video A, 3 = video B),
  * FORM ILBM (the 80x50 crouton icon) and FORM CrUD (TYPE ANIM/ALGO/ILBM/MAIN/CTRL/REXX, LIBS, TAGS). An ARexx
- * crouton (REXX) is a script, with icon and CrUD in its .i file. */
+ * crouton (REXX) is a script, with icon and CrUD in its .i file. A page of the character generator (KEYF, FRAM,
+ * SCRO, CRAW) starts with its picture instead, see cgpage.h. */
 #ifndef EFFECT_H
 #define EFFECT_H
 #include <stdint.h>
 #include <stddef.h>
 #include "algofx.h"
+#include "cgpage.h"
 
 #define ICON_W 80
 #define ICON_H 50
 
-enum { FX_OTHER, FX_ANIM, FX_ALGO, FX_ILBM, FX_MAIN, FX_CTRL, FX_REXX };
+enum { FX_OTHER, FX_ANIM, FX_ALGO, FX_ILBM, FX_MAIN, FX_CTRL, FX_REXX, FX_KEYF, FX_FRAM, FX_SCRO, FX_CRAW };
 enum { CTRL_BLANK = 0, CTRL_STOP = 2 };
 
 struct effect {
@@ -40,6 +42,8 @@ struct effect {
     int fcount[3];              /* S, M, F from the crouton's tags (0 = not given): frames (30/s) for ALGO effects,
                                  * fields per wipe frame for ANIM effects - read from the tags, not yet checked
                                  * against NewTek's code */
+    struct cgpage *page;        /* CG pages: the picture, decoded on demand by effect_frames. A key, a scroll and a
+                                 * crawl are overlays; a frame is a picture for the Framestore */
     const uint8_t *file;        /* the whole file, owned by the caller */
     size_t filelen;
     int w, h, nframes;          /* wipe frames, decoded on demand */
@@ -91,7 +95,9 @@ int effect_open(struct effect *e, const char *name, const uint8_t *buf, size_t n
 /* A crouton is a data file plus its .i icon file; some keep their CrUD (type, tags) and icon only in the .i.
  * Fill in what the data file lacked from the .i file's contents. */
 void effect_merge_icon(struct effect *e, const uint8_t *ibuf, size_t n);
-/* Decode the wipe frames (FX_ANIM, op 5 and op 7). 0 on success. */
+/* A scroll or a crawl: a page that moves, and goes to air and off it without a fade. */
+static inline int effect_moves(const struct effect *e) { return e->type == FX_SCRO || e->type == FX_CRAW; }
+/* Decode the wipe frames (FX_ANIM, op 5 and op 7), or a CG page's picture. 0 on success. */
 int effect_frames(struct effect *e);
 void effect_free_frames(struct effect *e);
 /* Overlay frame f at frame position fx,fy (0..FRAME_W/H): artwork opacity 0..255, its colour in *rgb. Key-level
