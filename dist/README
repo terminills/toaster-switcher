@@ -1,0 +1,148 @@
+Video Toaster Switcher for AROS                                        0.6 (18.11.2026)
+=========================================================================================
+
+NewTek's Video Toaster 4.x switcher, running natively on AROS (x86_64 and i386) without the
+Toaster card. The switcher panel is drawn from your own Toaster's switcher program; the card's
+job is done in software: its video inputs are streams (cameras and capture devices through VHI,
+video files), its effects are drawn from the croutons, and its sound follows the picture.
+
+
+What you need
+-------------
+  * AROS x86_64 or i386 as of November 2026 or later (stdc.library 0.53): this release was built
+    with the SDKs of AROS master and calls C library functions an older system does not have.
+    Do not use it there; build the Switcher from its source with that system's SDK instead.
+    USB cameras and capture dongles need a VHI driver (uvc.library); sound needs AHI.
+  * A Video Toaster 4.x installation (not part of this archive), assigned as Toaster:
+      Toaster:Programs/Switcher.main.AA                  the "Toasterless" switcher build
+                                                         (Aminet VT42-Toasterless); its panel
+                                                         graphics are read from it
+      Toaster:Programs/Switcher_Support/DefaultProject   the project to load (or PROJECT=)
+      Toaster:Effects/...                                the croutons the project names
+      Toaster:Programs/Edit_Support/Gadget64.pic         the Editor bar
+      Toaster:Programs/System_Support/Fonts/InterfaceLG  the interface font
+  * x86_64/Switcher or i386/Switcher from this archive, anywhere (e.g. Toaster:Programs/), and
+    its Plugins drawer as Toaster:Plugins (see Plug-ins).
+
+
+Starting
+--------
+  Switcher [FILE <switcher program>] [SCALE <1|2>] [IN1..IN4 <stream>] [DV1|DV2 <stream>]
+           [PROJECT <project>] [STATS]
+
+  SCALE 2 doubles the panel when the screen has room for it and the monitors beside it.
+  A stream is "vhi:uvc.library:<n>" (input n of a VHI driver), "file:<path>:0", or a plug-in's
+  ("bars::0").
+  Without settings, inputs 1-4 take the cameras found, then the driver's test pattern.
+
+
+The panel
+---------
+  Main / Preview rows      left button: put the input on the bus; right button: Inputs window
+  T-bar, AUTO, TAKE        run the selected crouton between Main and Preview (S M F = speed)
+  BKG box                  the background colour
+  Croutons                 transitions (wipes, ALGO pushes/flips/fly-ins, picture wipes),
+                           overlays (keyed over Program until taken off again), video source
+                           croutons (cut that input to Main)
+  SUPERIMPOSE              luminance key of a source over Program: OFF, key out black, key out
+                           white, clip level (upper/lower half of the box: up/down)
+  FRAMESTORE (on DV1)      FREEZE holds DV1's picture, LIVE releases it, 1-4 pick a still,
+                           STABILIZE line-doubles it, SAVE writes it (24-bit ILBM); right button
+                           on 1-4 loads a picture into that still
+  Editor bar               Delete, Clone, Tools (add croutons), Controls (a crouton's own speed
+                           and Play hold), Save (the project), Play / Stop (run the croutons in
+                           order)
+
+  Keys: I Inputs and Outputs window, M monitors in front of / behind the panel, cursor up/down
+        or the wheel scroll the croutons, Esc quits.
+
+
+Inputs and Outputs window
+-------------------------
+  Inputs: choose the stream of each input, give inputs a name (shown under their buttons and in
+  the monitor titles), and say what their sound does: Follows video (heard while on Program,
+  crossfading with the transition), Always (heard whatever is on air), Off.
+  "Add stream..." takes a VHI driver library or a file path, or a kind of stream a plug-in
+  brings; "Add file..." picks a video file.
+
+  Outputs: up to four places Program goes to besides the monitor, each of a kind a plug-in
+  brings. "Add output..." asks for the kind and what it needs (a port); the output is off
+  until "On/Off" starts it, and the list shows off, starting, on or failed. "Remove" stops it
+  and takes it off the list. (Recording Program to a file is not an output: that is ARexx's
+  RECORDCLIP.)
+
+  Plug-ins: what was found in Toaster:Plugins, with its version. "Scan" reads the drawer
+  again: plug-ins that are new are loaded, ones that are gone are dropped, and a new build of
+  one replaces the old - all while the Switcher runs. A plug-in that an input shows or a
+  running output uses is "in use" and stays as it is until it is free.
+
+  Save keeps the settings in ENVARC:VideoToaster/Inputs (see Inputs.example), Use for now.
+  Where ENVARC: cannot be written to (a system started from a CD), Save is greyed and Use is
+  what there is. Outputs saved while on start with the Switcher.
+
+
+Plug-ins
+--------
+  Copy the Plugins drawer of your architecture to Toaster:Plugins (x86_64/Plugins or
+  i386/Plugins). A plug-in is a file "<name>.tsplugin"; it must keep that name.
+
+  bars.tsplugin        Colour bars with a 1 kHz tone, as a stream for any input.
+  matte.tsplugin       A field of one colour (asked for as RRGGBB), as a stream for any input.
+  netstream.tsplugin   Program as a live stream on the network: the output "Network stream"
+                       serves http://<address of the AROS machine>:<port>/ (port 8090 unless
+                       you say another) to up to four players at a time - a media source in
+                       OBS, VLC, ffplay, mpv. It is Motion JPEG with uncompressed sound in a
+                       Matroska stream: 0.4 to 1.4 MB a second depending on the picture, for
+                       the local network.
+
+  PluginInfo <file>    (in the architecture's drawer) prints what a plug-in file says about
+                       itself, without the Switcher.
+
+  Plug-ins are small libraries with one function, and they run on the Switcher's own C
+  library; how to write one is in the source (include/tsplugin.h, plugins/bars.c, and the
+  Makefile's rule that builds them). A plug-in made for another version of the plug-in
+  interface is listed as such and not used.
+
+
+Monitors
+--------
+  The Program / Preview window shows both buses; Program carries the sound level meter.
+
+
+Known limits
+------------
+  * While a USB camera is grabbed through uvc.library, the system stalls for most of each
+    camera frame, so file streams and sound stutter while a camera is on a bus. They are smooth
+    without one. This is in the UVC driver, not in the switcher.
+  * ALGO effects are drawn from their parameters; a few behaviours are reconstructed, not taken
+    from NewTek's code (mode 5 effects run out and back in). The 10/12-plane bars, "art card
+    key" and the glitch/kinescope overlays fall back to a dissolve or do nothing.
+  * All, Programs, Views and play on Preview are not functional.
+  * On x86_64 builds of AROS master made with gcc 10, reqtools' file requester opens as a
+    title bar only ("Add file...", Tools, Save project). That is in reqtools.library, not in
+    the Switcher; streams can be typed into "Add stream..." meanwhile. i386 builds are not
+    affected.
+  * Camera sound comes from the camera's own USB audio (its AHI recording mode, e.g. "UGREEN
+    Camera 2K: 16 bit stereo++"), but while uvc.library grabs a camera's pictures that camera's
+    sound stops; it records fine on its own. Also in the UVC driver.
+
+
+FFmpeg
+------
+File streams use FFmpeg 8.1.2 (LGPL 2.1 or later), linked statically. See the LGPL drawer: the
+licence, the exact build configuration and AROS patch, and the switcher's object files with
+link commands, so the switcher can be relinked against a modified FFmpeg.
+
+
+Licence
+-------
+The switcher's own code is under the AROS Public License 1.1 (the file LICENSE, or
+http://www.aros.org/license.html). The Initial Developer is terminills; copyright (C) 2026.
+Its source is at https://github.com/terminills/toaster-switcher.
+
+The switcher's logic was converted from NewTek's Video Toaster switcher: from the source NewTek
+released (Open Video Toaster) and from the shipped program. What is NewTek's in it stays
+NewTek's, on the terms of that release; nothing of a Video Toaster installation is in this
+archive. FFmpeg is under the LGPL as above.
+
+This is a test release, without warranty of any kind.

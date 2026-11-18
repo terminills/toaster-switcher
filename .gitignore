@@ -1,0 +1,16 @@
+# NewTek/emufan binaries, the emulated disk and generated listings stay local
+bin/
+rig/dh0/
+rig/x/
+rig/*.rom
+rig/*.adf
+rig/*.hdf
+rig/shots/*.xwd
+rig/logs/
+rig/.pids
+rig/orig-4.2-programs/
+tools/venv/
+dis/**/*.bin
+build/
+__pycache__/
+local.mk

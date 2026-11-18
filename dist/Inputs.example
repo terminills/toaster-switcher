@@ -1,0 +1,12 @@
+DRIVER=vhi:uvc.library
+DRIVER=file:Work:Clips/opener.mp4
+IN1=vhi:uvc.library:1
+IN2=vhi:uvc.library:2
+IN3=file:Work:Clips/opener.mp4:0
+IN1NAME=Cam 1
+IN2NAME=Cam 2
+IN3NAME=Opener
+IN3SOUND=always
+IN4=bars::0
+OUT1=net:8090
+OUT1ON=1
