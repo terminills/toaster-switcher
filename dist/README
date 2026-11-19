@@ -63,8 +63,9 @@ The panel
 CG pages
 --------
   A page of the Toaster's character generator is a crouton. Tools, "Add croutons...", takes
-  the file ToasterCG for AROS (1.0 RC6) writes with Save Page; a script adds one with
-  CROUTONLOAD <file>. What a page does as the selected crouton depends on its kind:
+  the file ToasterCG for AROS (1.0 RC7, https://github.com/terminills/toastercg-aros) writes
+  with Save Page; a script adds one with CROUTONLOAD <file>. What a page does as the
+  selected crouton depends on its kind:
 
   Key page                 keyed over Program: AUTO fades it on and off, TAKE cuts.
   Scroll, crawl            on air at once with TAKE or AUTO, moving by the clock at the speed

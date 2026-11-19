@@ -26,6 +26,10 @@ Plug-ins: inputs and outputs can be added as small libraries in `Toaster:Plugins
 runs. `include/tsplugin.h` is the interface (with `tsinput.h` and `tsoutput.h`), `plugins/bars.c` the shortest example,
 and the Makefile's `.tsplugin` rule how one is built.
 
+CG pages: the Toaster's character generator is a program of its own,
+[ToasterCG for AROS](https://github.com/terminills/toastercg-aros); the pages its Save Page writes are croutons here
+(`src/cgpage.c`).
+
 Layout:
 - `src/` the switcher (`src/aros/` what is AROS only: windows, inputs, outputs, sound, ARexx), `include/`, `plugins/`,
   `tests/`, `dist/` what a release carries besides the programs.
