@@ -23,7 +23,7 @@ enum {
     RXE_CHANGED,                /* the project or the selection changed: show it */
     RXE_PLAY,                   /* play the project; the answer waits for its end */
     RXE_STOP,
-    RXE_FILEREQ,                /* answer, then rxedit_filereq */
+    RXE_FILEREQ,                /* answer at once: the script asks what came of it */
     RXE_RECORD                  /* a recording runs; the answer is rec_status() when it has ended */
 };
 
@@ -35,8 +35,10 @@ struct rxeout {
 };
 
 void rxeditor(struct rxedit *st, const char *fn, int argc, const char *const *argv, struct rxeout *o);
-/* The file requester STARTFILEREQ asked for; QUERYFILEREQ tells what came of it. */
-void rxedit_filereq(struct rxedit *st);
+/* The file requester STARTFILEREQ asked for and has not been told of yet (1, with what it is to show), and what
+ * came of it for QUERYFILEREQ: the path, or NULL when it was cancelled. */
+int rxedit_filereq_wanted(const char **title, const char **dir, const char **file);
+void rxedit_filereq_done(const char *path);
 
 /* What ADDTOOL and ADDPROGRAM put behind the Tools and Programs buttons. */
 enum { RXL_TOOLS, RXL_PROGRAMS };

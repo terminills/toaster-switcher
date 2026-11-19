@@ -10,6 +10,7 @@
 #include <proto/gadtools.h>
 #include <proto/reqtools.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "rexxreq.h"
 
@@ -148,25 +149,98 @@ void req_message(struct Window *w, const char *text)
     SetWindowTitles(w, (CONST_STRPTR)(*title ? title : WINTITLE), (CONST_STRPTR)-1);
 }
 
-int req_file(struct Window *w, const char *title, const char *dir, const char *file, char *out, size_t size)
+/* A multi-select list entry's name. reqtools (filereq.c AllocSelectedFiles) stores it 4 bytes into the Name field
+ * and points Name there, which on 64-bit overwrites Name's upper half: read it where it was written unless Name
+ * points just past itself. */
+static const char *list_name(const struct rtFileList *l)
 {
-    struct Library *ReqToolsBase = OpenLibrary((CONST_STRPTR)"reqtools.library", 38);
+    const char *fixed = (const char *)&l->Name + sizeof(l->Name);
+    return l->Name == fixed ? fixed : (const char *)&l->Name + 4;
+}
+
+struct filereq {
+    struct Library *base;
     struct rtFileRequester *fr;
-    char name[108];
-    int r = 0;
-    if (!ReqToolsBase) return 0;
-    snprintf(name, sizeof(name), "%s", file);
-    if ((fr = rtAllocRequestA(RT_FILEREQ, NULL))) {
-        if (*dir) rtChangeReqAttr(fr, RTFI_Dir, (IPTR)dir, TAG_DONE);
-        if (rtFileRequest(fr, name, (char *)title, RT_Window, (IPTR)w, RT_ReqPos, REQPOS_CENTERWIN, TAG_DONE)) {
-            snprintf(out, size, "%s", (const char *)fr->Dir);
-            AddPart((STRPTR)out, (CONST_STRPTR)name, size);
-            r = 1;
-        }
-        rtFreeRequest(fr);
+    struct rtHandlerInfo *hi;           /* while it is up */
+    struct rtFileList *list;            /* what REQF_MULTI gave */
+    int multi, state;
+    char title[128], file[108];         /* the requester keeps the pointers */
+};
+
+struct filereq *req_file_open(struct Window *w, const char *title, const char *dir, const char *file, int flags)
+{
+    struct filereq *q = calloc(1, sizeof(*q));
+    struct Library *ReqToolsBase;
+    struct TagItem tags[] = {
+        { RT_Window, (IPTR)w }, { RT_ReqHandler, 0 },
+        { RTFI_Flags, (flags & REQF_SAVE ? FREQF_SAVE : 0) | (flags & REQF_MULTI ? FREQF_MULTISELECT : 0) },
+        { flags & REQF_CENTRE ? RT_ReqPos : TAG_IGNORE, REQPOS_CENTERWIN }, { TAG_DONE, 0 }
+    };
+    if (!q) return NULL;
+    tags[1].ti_Data = (IPTR)&q->hi;
+    q->multi = (flags & REQF_MULTI) != 0;
+    snprintf(q->title, sizeof(q->title), "%s", title);
+    snprintf(q->file, sizeof(q->file), "%s", file);
+    if ((q->base = ReqToolsBase = OpenLibrary((CONST_STRPTR)"reqtools.library", 38)) &&
+        (q->fr = rtAllocRequestA(RT_FILEREQ, NULL))) {
+        if (*dir) rtChangeReqAttr(q->fr, RTFI_Dir, (IPTR)dir, TAG_DONE);
+        if ((IPTR)rtFileRequestA(q->fr, q->file, q->title, tags) == CALL_HANDLER && q->hi) return q;
+        q->hi = NULL;
     }
-    CloseLibrary(ReqToolsBase);
-    return r;
+    req_file_close(q);
+    return NULL;
+}
+
+ULONG req_file_sigmask(const struct filereq *q)
+{
+    return q && q->hi ? q->hi->WaitMask : 0;
+}
+
+int req_file_nowait(const struct filereq *q)
+{
+    return q && q->hi && q->hi->DoNotWait;
+}
+
+int req_file_step(struct filereq *q, ULONG sigs)
+{
+    struct Library *ReqToolsBase = q->base;
+    IPTR r;
+    if (q->state) return q->state;
+    if (!q->hi->DoNotWait && !(sigs & q->hi->WaitMask)) return 0;
+    if ((r = rtReqHandlerA(q->hi, sigs, NULL)) == CALL_HANDLER) return 0;
+    q->hi = NULL;
+    if (q->multi) q->list = (struct rtFileList *)r;
+    q->state = r ? 1 : -1;
+    return q->state;
+}
+
+int req_file_name(const struct filereq *q, int n, char *out, size_t size)
+{
+    const struct rtFileList *l = q->list;
+    const char *name = q->file;
+    if (q->state != 1 || n < 0) return 0;
+    if (q->multi) {
+        while (l && n-- > 0) l = l->Next;
+        if (!l) return 0;
+        name = list_name(l);
+    } else if (n) {
+        return 0;
+    }
+    snprintf(out, size, "%s", (const char *)q->fr->Dir);
+    AddPart((STRPTR)out, (CONST_STRPTR)name, size);
+    return 1;
+}
+
+void req_file_close(struct filereq *q)
+{
+    struct Library *ReqToolsBase;
+    if (!q) return;
+    ReqToolsBase = q->base;
+    if (q->hi) rtReqHandler(q->hi, 0, RTRH_EndRequest, REQ_CANCEL, TAG_DONE);
+    if (q->list) rtFreeFileList(q->list);
+    if (q->fr) rtFreeRequest(q->fr);
+    if (ReqToolsBase) CloseLibrary(ReqToolsBase);
+    free(q);
 }
 
 /* A window of gadgets over parent, wide enough for its title; ww and wh without the borders' share. */

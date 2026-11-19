@@ -193,10 +193,19 @@ void rxedit_start(struct rxedit *st, int list, int i)
     }
 }
 
-void rxedit_filereq(struct rxedit *st)
+int rxedit_filereq_wanted(const char **title, const char **dir, const char **file)
 {
-    if (filereq != 1) return;
-    filereq = req_file(st->w, freqtitle, freqdir, freqfile, freqpath, sizeof(freqpath)) ? 3 : 2;
+    if (filereq != 1) return 0;
+    *title = freqtitle;
+    *dir = freqdir;
+    *file = freqfile;
+    return 1;
+}
+
+void rxedit_filereq_done(const char *path)
+{
+    if (path) snprintf(freqpath, sizeof(freqpath), "%s", path);
+    filereq = path ? 3 : 2;
 }
 
 void rxeditor(struct rxedit *st, const char *fn, int argc, const char *const *argv, struct rxeout *o)

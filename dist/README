@@ -1,4 +1,4 @@
-Video Toaster Switcher for AROS                                        0.7 (18.11.2026)
+Video Toaster Switcher for AROS                                      0.7.1 (18.11.2026)
 =========================================================================================
 
 NewTek's Video Toaster 4.x switcher, running natively on AROS (x86_64 and i386) without the
@@ -171,9 +171,6 @@ Known limits
     key" and the glitch/kinescope overlays fall back to a dissolve or do nothing.
   * All, Views and play on Preview are not functional. Programs lists only what a script
     added with ADDPROGRAM; the Toaster's own programs are not started from it.
-  * While one of the panel's file requesters is open (Tools "Add croutons...", Save, loading a
-    still) the panel waits for it: Program holds the picture it had and ARexx is not answered
-    until the requester is closed.
   * Camera sound comes from the camera's own USB audio (its AHI recording mode, e.g. "UGREEN
     Camera 2K: 16 bit stereo++"). It was not tested with this release.
 

@@ -32,8 +32,6 @@
 #include "outputs.h"
 #include "plugins.h"
 #include "croutontags.h"
-#include <libraries/reqtools.h>
-#include <proto/reqtools.h>
 #include <stdio.h>
 #include <sys/time.h>
 
@@ -50,16 +48,6 @@
 static const int speedticks[3] = { 100, 50, 25 };
 #define MIXMAX 1024             /* Program mix: 0 = Main, MIXMAX = Preview */
 
-/* A multi-select list entry's name. reqtools (filereq.c AllocSelectedFiles) stores it 4 bytes into the Name field
- * and points Name there, which on 64-bit overwrites Name's upper half: read it where it was written unless Name
- * points just past itself. */
-static const char *list_name(const struct rtFileList *l)
-{
-    const char *fixed = (const char *)&l->Name + sizeof(l->Name);
-    return l->Name == fixed ? fixed : (const char *)&l->Name + 4;
-}
-
-/* Tools: croutons from the effects, after the selected one. */
 /* An ARexx crouton in a sequence: its script with the arguments its CommandLine tag holds, on its own. */
 static void run_script(struct rexxhost *h, const struct effect *e)
 {
@@ -71,107 +59,89 @@ static void run_script(struct rexxhost *h, const struct effect *e)
     rexx_run(h, cmd);
 }
 
-static void add_croutons(struct Window *w, struct switcher *sw, int *ovl)
+/* The file requester that is up and what it is for. One at a time; the main loop steps it, so the switcher goes
+ * on meanwhile. */
+enum { FR_CROUTONS = 1, FR_PROJECT, FR_STILL_SAVE, FR_STILL_LOAD, FR_REXX };
+static struct filereq *freq;
+static int freqfor, freqslot;
+
+static int ask_file(struct Window *w, int what, int slot, const char *title, const char *dir, const char *file,
+                    int flags)
 {
-    struct Library *ReqToolsBase = OpenLibrary((CONST_STRPTR)"reqtools.library", 38);
-    struct rtFileRequester *fr;
-    struct rtFileList *list, *l;
-    char file[108] = "";
-    if (!ReqToolsBase) return;
-    if ((fr = rtAllocRequestA(RT_FILEREQ, NULL))) {
-        rtChangeReqAttr(fr, RTFI_Dir, (IPTR)"Toaster:Effects", TAG_DONE);
-        if ((list = (struct rtFileList *)rtFileRequest(fr, file, (char *)"Add croutons", RT_Window, (IPTR)w,
-                                                        RTFI_Flags, FREQF_MULTISELECT, TAG_DONE))) {
-            int at = sw->fxsel >= 0 ? sw->fxsel + 1 : sw->nfx, first = -1;
-            for (l = list; l; l = l->Next) {
-                char path[256];
-                size_t n;
-                strncpy(path, (const char *)fr->Dir, sizeof(path) - 1);
-                path[sizeof(path) - 1] = 0;
-                AddPart((STRPTR)path, (CONST_STRPTR)list_name(l), sizeof(path));
-                n = strlen(path);
-                if (n > 2 && !strcmp(path + n - 2, ".i")) path[n - 2] = 0;     /* the icon file names it too */
-                if (!add_crouton(sw, at, path, NULL, 0, ovl)) {
-                    if (first < 0) first = at;
-                    at++;
-                }
-            }
-            rtFreeFileList(list);
-            if (first >= 0) {
-                select_effect(sw, first, *ovl);
-                show_selected(sw);
-            }
-        }
-        rtFreeRequest(fr);
+    if (freq || !(freq = req_file_open(w, title, dir, file, flags))) {
+        DisplayBeep(w->WScreen);
+        return 0;
     }
-    CloseLibrary(ReqToolsBase);
+    freqfor = what;
+    freqslot = slot;
+    return 1;
 }
 
-static void save_project(struct Window *w, struct switcher *sw)
+/* Tools: croutons from the effects, after the selected one. */
+static void ask_croutons(struct Window *w)
 {
-    struct Library *ReqToolsBase = OpenLibrary((CONST_STRPTR)"reqtools.library", 38);
-    struct rtFileRequester *fr;
-    char dir[256], file[108], path[512];
-    if (!ReqToolsBase) return;
+    ask_file(w, FR_CROUTONS, 0, "Add croutons", "Toaster:Effects", "", REQF_MULTI);
+}
+
+static void add_croutons(struct switcher *sw, int *ovl)
+{
+    int at = sw->fxsel >= 0 ? sw->fxsel + 1 : sw->nfx, first = -1, k;
+    char path[256];
+    for (k = 0; req_file_name(freq, k, path, sizeof(path)); k++) {
+        size_t n = strlen(path);
+        if (n > 2 && !strcmp(path + n - 2, ".i")) path[n - 2] = 0;         /* the icon file names it too */
+        if (!add_crouton(sw, at, path, NULL, 0, ovl)) {
+            if (first < 0) first = at;
+            at++;
+        }
+    }
+    if (first >= 0) {
+        select_effect(sw, first, *ovl);
+        show_selected(sw);
+    }
+}
+
+static void ask_project(struct Window *w)
+{
+    char dir[256];
     strncpy(dir, projpath, sizeof(dir) - 1);
     dir[sizeof(dir) - 1] = 0;
     *PathPart((STRPTR)dir) = 0;
-    strncpy(file, base_name(projpath), sizeof(file) - 1);
-    file[sizeof(file) - 1] = 0;
-    if ((fr = rtAllocRequestA(RT_FILEREQ, NULL))) {
-        rtChangeReqAttr(fr, RTFI_Dir, (IPTR)dir, TAG_DONE);
-        if (rtFileRequest(fr, file, (char *)"Save project", RT_Window, (IPTR)w, RTFI_Flags, FREQF_SAVE, TAG_DONE)) {
-            strncpy(path, (const char *)fr->Dir, sizeof(path) - 1);
-            path[sizeof(path) - 1] = 0;
-            AddPart((STRPTR)path, (CONST_STRPTR)file, sizeof(path));
-            save_project_to(sw, path);
-        }
-        rtFreeRequest(fr);
-    }
-    CloseLibrary(ReqToolsBase);
+    ask_file(w, FR_PROJECT, 0, "Save project", dir, base_name(projpath), REQF_SAVE);
 }
 
 /* Save slot s's still, or load a picture into it, through a file requester. */
-static void still_file(struct Window *w, struct framestore *fs, int s, int save)
+static void ask_still(struct Window *w, int s, int save)
 {
-    struct Library *ReqToolsBase = OpenLibrary((CONST_STRPTR)"reqtools.library", 38);
-    struct rtFileRequester *fr;
-    char name[108], path[512];
-    if (!ReqToolsBase) return;
+    char name[108];
     snprintf(name, sizeof(name), "Still%d.ilbm", s + 1);
-    if ((fr = rtAllocRequestA(RT_FILEREQ, NULL))) {
-        rtChangeReqAttr(fr, RTFI_Dir, (IPTR)"RAM:", TAG_DONE);
-        if (rtFileRequest(fr, name, (char *)(save ? "Save still" : "Load still"), RT_Window, (IPTR)w,
-                          RTFI_Flags, save ? FREQF_SAVE : 0, TAG_DONE)) {
-            uint8_t *buf;
-            size_t n;
-            strncpy(path, (const char *)fr->Dir, sizeof(path) - 1);
-            path[sizeof(path) - 1] = 0;
-            AddPart((STRPTR)path, (CONST_STRPTR)name, sizeof(path));
-            if (save && fs->still[s] && !ilbm_encode24(fs->still[s], fs->w, fs->h, &buf, &n)) {
-                BPTR fh = Open((CONST_STRPTR)path, MODE_NEWFILE);
-                if (fh) {
-                    Write(fh, buf, n);
-                    Close(fh);
-                }
-                free(buf);
-            } else if (!save) {
-                LONG len;
-                uint8_t *fb = readfile(path, &len);
-                struct picture pic;
-                if (fb && !ilbm_decode(fb, len, &pic)) {
-                    if (!fs_load(fs, s, pic.rgb, pic.w, pic.h)) fs->cur = s;
-                    picture_free(&pic);
-                }
-                free(fb);
-            }
-        }
-        rtFreeRequest(fr);
-    }
-    CloseLibrary(ReqToolsBase);
+    ask_file(w, save ? FR_STILL_SAVE : FR_STILL_LOAD, s, save ? "Save still" : "Load still", "RAM:", name,
+             save ? REQF_SAVE : 0);
 }
 
-/* TOWB: the Workbench to the front; the Toaster's window behind the others when it is on that screen. */
+static void still_file(struct framestore *fs, int s, int save, const char *path)
+{
+    uint8_t *buf;
+    size_t n;
+    if (save && fs->still[s] && !ilbm_encode24(fs->still[s], fs->w, fs->h, &buf, &n)) {
+        BPTR fh = Open((CONST_STRPTR)path, MODE_NEWFILE);
+        if (fh) {
+            Write(fh, buf, n);
+            Close(fh);
+        }
+        free(buf);
+    } else if (!save) {
+        LONG len;
+        uint8_t *fb = readfile(path, &len);
+        struct picture pic;
+        if (fb && !ilbm_decode(fb, len, &pic)) {
+            if (!fs_load(fs, s, pic.rgb, pic.w, pic.h)) fs->cur = s;
+            picture_free(&pic);
+        }
+        free(fb);
+    }
+}
+
 static int workbench_front(struct Window *w)
 {
     struct Screen *wb = LockPubScreen((CONST_STRPTR)"Workbench");
@@ -201,7 +171,7 @@ static void framestore_button(struct switcher *sw, struct framestore *fs, struct
     } else if (i == TRANS_STABILIZE) {
         fs->stable[fs->cur] = !fs->stable[fs->cur];
     } else if (i == TRANS_SAVE) {
-        still_file(w, fs, fs->cur, 1);
+        ask_still(w, fs->cur, 1);
     }
     framestore_lights(sw, fs);
 }
@@ -238,7 +208,7 @@ static void frame_page(struct switcher *sw, struct framestore *fs, struct effect
 #define FRAMEMICROS 20000
 #define SEQHOLD 100             /* Play: a crouton holds 2 s after its transition unless its Controls say otherwise */       /* monitor refresh during a transition */
 
-static const char version[] __attribute__((used)) = "$VER: Switcher 0.7 (18.11.2026)";
+static const char version[] __attribute__((used)) = "$VER: Switcher 0.7.1 (18.11.2026)";
 
 /* Put a rectangle of the interface display (all of it when rw is 0) into the window. */
 static void show_rect(struct Window *w, struct switcher *sw, int scale, uint32_t *sbuf, int rx, int ry, int rw, int rh)
@@ -610,9 +580,10 @@ int main(void)
     picks = sw.fxpicks;
     while (!done) {
         struct IntuiMessage *m;
-        ULONG got = Wait(1UL << w->UserPort->mp_SigBit | (mon ? 1UL << mon->UserPort->mp_SigBit : 0) | 1UL << sigbit |
-                         inputswin_sigmask(iw) | 1UL << tport->mp_SigBit | rexx_sigmask(rxsw) |
-                         rexx_sigmask(rxed));
+        ULONG mask = 1UL << w->UserPort->mp_SigBit | (mon ? 1UL << mon->UserPort->mp_SigBit : 0) | 1UL << sigbit |
+                     inputswin_sigmask(iw) | 1UL << tport->mp_SigBit | rexx_sigmask(rxsw) | rexx_sigmask(rxed) |
+                     req_file_sigmask(freq);
+        ULONG got = req_file_nowait(freq) ? SetSignal(0, mask) & mask : Wait(mask);
         int redraw = 0, changed = 0, tick = 0, tbarupdate = tbarupdate_pending;
 
         if (tpending && CheckIO(&treq->tr_node)) {
@@ -816,7 +787,6 @@ int main(void)
             case RXE_FILEREQ:           /* the script asks for the file while the requester is up */
                 rexx_reply(&rxecall, rxe.rc, rxe.rc2, rxe.text);
                 rxewaits = 0;
-                rxedit_filereq(&st);
                 break;
             }
             redraw = 1;                 /* the project or the selection may have changed */
@@ -898,10 +868,7 @@ int main(void)
                         iw = inputswin_open(iw, w->WScreen, in, &prefs, i, sw.bar.have_font ? &sw.bar.font : NULL,
                                             scale);
                     else if (r == ROW_TRANS && i >= TRANS_FS1 && i < TRANS_FS1 + FS_SLOTS) {   /* load a still */
-                        still_file(w, &fs, i - TRANS_FS1, 0);
-                        sw.translit = (sw.translit & ~(0xfu << TRANS_FS1)) | 1u << (TRANS_FS1 + fs.cur);
-                        set_labels(&sw, in, &prefs, &fs);
-                        redraw = 1;
+                        ask_still(w, i - TRANS_FS1, 0);
                     }
                     break;
                 }
@@ -916,10 +883,10 @@ int main(void)
                         int n = rxedit_list(list, names + tools, 25), k = 0;
                         struct rxedit st = { &sw, &ovl, w, rxed, speedticks, SEQHOLD };
                         if (n) k = req_choose(w, tools ? "Tools" : "Programs", names, n + tools);
-                        if (tools && k == 0) add_croutons(w, &sw, &ovl);
+                        if (tools && k == 0) ask_croutons(w);
                         else if (n && k >= tools) rxedit_start(&st, list, k - tools);
                     }
-                    else if (i == EB_SAVE) save_project(w, &sw);
+                    else if (i == EB_SAVE) ask_project(w);
                     else if (i == EB_CONTROLS && idle && sw.fxsel >= 0) {
                         struct effect *e = &sw.fx[sw.fxsel];
                         int sp = e->ctl_speed, hold = e->ctl_hold;
@@ -1019,6 +986,30 @@ int main(void)
                 break;
             }
         }
+        if (freq && req_file_step(freq, got) && (freqfor != FR_CROUTONS || (!autostart && !mix && seqpos < 0))) {
+            char path[512];                     /* it has closed; croutons are not added under a running effect */
+            int have = req_file_name(freq, 0, path, sizeof(path));
+            if (freqfor == FR_CROUTONS) {
+                add_croutons(&sw, &ovl);
+            } else if (freqfor == FR_PROJECT) {
+                if (have) save_project_to(&sw, path);
+            } else if (freqfor == FR_REXX) {
+                rxedit_filereq_done(have ? path : NULL);
+            } else if (have) {
+                still_file(&fs, freqslot, freqfor == FR_STILL_SAVE, path);
+                sw.translit = (sw.translit & ~(0xfu << TRANS_FS1)) | 1u << (TRANS_FS1 + fs.cur);
+                set_labels(&sw, in, &prefs, &fs);
+            }
+            req_file_close(freq);
+            freq = NULL;
+            redraw = 1;
+        }
+        {
+            const char *title, *dir, *file;     /* the one a script asked for, when no other is up */
+            if (!freq && rxedit_filereq_wanted(&title, &dir, &file) &&
+                !ask_file(w, FR_REXX, 0, title, dir, file, REQF_CENTRE))
+                rxedit_filereq_done(NULL);
+        }
         if (sw.fxpicks != picks) {
             picks = sw.fxpicks;
             if (FXCUR(&sw) && FXCUR(&sw)->type == FX_FRAM && FXCUR(&sw)->page) {
@@ -1053,6 +1044,7 @@ int main(void)
     }
     rc = RETURN_OK;
 close:
+    req_file_close(freq);
     if (rxfrom) rexx_reply(&rxcall, rxo.rc, rxo.rc2, rxo.text);
     rexx_close(rxsw);
     rec_stop();
