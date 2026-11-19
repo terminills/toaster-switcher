@@ -21,6 +21,8 @@ int rexx_next(struct rexxhost *h, struct rexxcall *c);
 void rexx_reply(struct rexxcall *c, long rc, long rc2, const char *result);
 /* Start a macro (a command line for the ARexx server), without a console. 1 when it was sent. */
 int rexx_run(struct rexxhost *h, const char *cmd);
+/* A command for another program's port, not waited for: its answer is taken in as a macro's is. 1 when it was sent. */
+int rexx_send(struct rexxhost *h, const char *port, const char *cmd);
 /* Macros sent and not answered yet. */
 int rexx_macros(const struct rexxhost *h);
 void rexx_close(struct rexxhost *h);

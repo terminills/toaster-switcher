@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rexxcmd.h"
+#include "cgprog.h"
 #include "swproject.h"
 #include "gfxfile.h"
 #include "effect.h"
@@ -149,7 +150,7 @@ void rxswitcher(const struct rxstate *st, const char *fn, int argc, const char *
         "FMRN", "FMXI", "KEYP", "KEYN" };
     /* nothing to do for them here: obsolete ones, GPI output with GPI off, what only saved the Amiga time */
     static const char *const nops[] = { "NOPR", "GOCG", "GOFX", "GOLD", "GOSA", "DOEN", "DISW", "ENSW", "DIIM", "ENIM",
-        "OGPI", "GRON", "STTP", "DPTP", "DPCG", "DPLW" };
+        "OGPI", "GRON", "STTP", "DPTP", "DPLW" };
     struct switcher *sw = st->sw;
     struct framestore *fs = st->fs;
     const char *c, *a1 = argc > 1 ? argv[1] : "", *a2 = argc > 2 ? argv[2] : "";
@@ -238,9 +239,9 @@ void rxswitcher(const struct rxstate *st, const char *fn, int argc, const char *
         snprintf(o->text, sizeof(o->text), "%lu", (unsigned long)AvailMem((is(c, "MEMC") ? MEMF_CHIP : MEMF_FAST) |
                  (toupper((unsigned char)a1[0]) == 'L' ? MEMF_LARGEST : 0)));
     } else if (is(c, "CKCG")) {         /* the CG is loaded while its port is there */
-        Forbid();
-        strcpy(o->text, FindPort((CONST_STRPTR)"CG_AREXX") ? "1" : "0");
-        Permit();
+        strcpy(o->text, cg_loaded() ? "1" : "0");
+    } else if (is(c, "LDCG") || is(c, "DPCG")) {
+        o->act = is(c, "LDCG") ? RXA_LDCG : RXA_DPCG;
     } else if (is(c, "CKTP") || is(c, "CKLW") || is(c, "GROF")) {
         strcpy(o->text, "0");
     } else {

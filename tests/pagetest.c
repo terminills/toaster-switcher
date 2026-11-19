@@ -420,10 +420,59 @@ static int match(int argc, char **argv)
     return bad ? 10 : 0;
 }
 
+/* pagetest rows <page file> <background.ppm or -> <first> <last> <picture.ppm>: a picture taken of the screen from
+ * outside while a moving page is on air can hold two fields, the new one down to some row and the one before it
+ * below. Every row is compared whole and exactly with the fields first to last: printed is the pair of fields at
+ * most 2 apart, and the row where the second begins, that leaves the fewest rows equal to neither. */
+static int rows(char **argv)
+{
+    static uint32_t buf[480 * 360];
+    struct effect e;
+    size_t n;
+    uint8_t *file = readall(argv[2], &n), *same;
+    uint32_t *bg = strcmp(argv[3], "-") ? readppm(argv[3]) : calloc(480 * 360, sizeof(*bg)), *pic = readppm(argv[6]);
+    long first = atol(argv[4]), last = atol(argv[5]), k, pos2, a, b, ba = -1, bb = -1;
+    int x, y, t, bt = 0, miss, best = -1;
+
+    if (!file || !bg || !pic || last < first) { printf("%s, %s or %s: not read\n", argv[2], argv[3], argv[6]); return 10; }
+    effect_open(&e, "page", file, n);
+    if (e.type < FX_KEYF || effect_frames(&e) || !effect_moves(&e)) { printf("%s: not a moving CG page\n", argv[2]); return 10; }
+    if (!(same = malloc((size_t)(last - first + 1) * 360))) return 10;
+    for (k = first; k <= last; k++) {
+        memcpy(buf, bg, sizeof(buf));
+        if (cgpage_at(e.page, k, &pos2)) cgpage_blend(e.page, pos2, buf, 480, 360, 256, 256);
+        for (y = 0; y < 360; y++) {
+            for (x = 0; x < 480; x++)
+                if ((pic[y * 480 + x] & 0xffffff) != 0xff00ff && ((buf[y * 480 + x] ^ pic[y * 480 + x]) & 0xffffff)) break;
+            same[(k - first) * 360 + y] = x == 480;
+        }
+    }
+    for (a = first; a <= last; a++)
+        for (b = a > first + 2 ? a - 2 : first; b <= a + 2 && b <= last; b++) {
+            /* rows 0 to t - 1 from a, the rest from b */
+            for (miss = 0, y = 0; y < 360; y++) miss += !same[(b - first) * 360 + y];
+            for (t = 0; t <= 360; t++) {
+                if (best < 0 || miss < best) { best = miss; ba = a; bb = b; bt = t; }
+                if (t < 360) miss += !same[(a - first) * 360 + t] - !same[(b - first) * 360 + t];
+            }
+        }
+    if (bt == 0) ba = bb;
+    if (bt == 360) bb = ba;
+    if (ba == bb) printf("%s: field %ld; %d rows are not\n", argv[6], ba, best);
+    else printf("%s: field %ld above row %d, field %ld from it on; %d rows are neither\n", argv[6], ba, bt, bb, best);
+    effect_close(&e);
+    free(same);
+    free(file);
+    free(bg);
+    free(pic);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     int i;
     if (argc > 6 && (!strcmp(argv[1], "match") || !strcmp(argv[1], "track"))) return match(argc, argv);
+    if (argc == 7 && !strcmp(argv[1], "rows")) return rows(argv);
     if (argc > 2) {
         for (i = 2; i < argc; i++) show(argv[1], argv[i]);
         return bad ? 10 : 0;

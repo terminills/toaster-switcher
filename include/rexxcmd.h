@@ -28,6 +28,8 @@ enum {
     RXA_TOSW,                   /* the Toaster to the front */
     RXA_TOWB,                   /* the Workbench to the front */
     RXA_CHANGED,                /* settings were changed: show them */
+    RXA_LDCG,                   /* the CG: load it, */
+    RXA_DPCG,                   /* unload it */
     RXA_QUIT
 };
 

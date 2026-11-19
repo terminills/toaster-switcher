@@ -26,7 +26,7 @@ FFLIBS = -lavformat -lavcodec -lswscale -lswresample -lavutil
 FFDEPS_i386 = -latomic
 
 CORE   = src/hunkimg.c src/fgrender.c src/effect.c src/gfxfile.c src/skin.c src/editbar.c src/algofx.c src/framestore.c src/croutontags.c src/cgpage.c
-AROS_SRC = src/aros/main.c src/aros/project.c src/aros/rexxhost.c src/aros/rexxcmd.c src/aros/rexxedit.c src/aros/rexxreq.c src/aros/inputs.c src/aros/inputswin.c src/aros/controlswin.c src/aros/audioout.c src/aros/sink.c src/aros/record.c src/aros/outputs.c src/aros/plugins.c src/input_vhi.c
+AROS_SRC = src/aros/main.c src/aros/project.c src/aros/rexxhost.c src/aros/rexxcmd.c src/aros/rexxedit.c src/aros/rexxreq.c src/aros/cgprog.c src/aros/inputs.c src/aros/inputswin.c src/aros/controlswin.c src/aros/audioout.c src/aros/sink.c src/aros/record.c src/aros/outputs.c src/aros/plugins.c src/input_vhi.c
 HDRS   = $(wildcard include/*.h)
 CFLAGS_AROS = -std=gnu99 -O2 -Wall -Wextra -Werror -Iinclude
 # what is built is stripped the way AROS strips its own programs

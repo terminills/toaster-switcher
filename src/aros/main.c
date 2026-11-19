@@ -28,6 +28,7 @@
 #include "rexxcmd.h"
 #include "rexxedit.h"
 #include "rexxreq.h"
+#include "cgprog.h"
 #include "record.h"
 #include "outputs.h"
 #include "plugins.h"
@@ -47,6 +48,9 @@
 /* AUTO length in 1/50 s for S, M and F, until effects carry their own */
 static const int speedticks[3] = { 100, 50, 25 };
 #define MIXMAX 1024             /* Program mix: 0 = Main, MIXMAX = Preview */
+/* LDCG and DPCG are answered when the CG's port is there and when it has gone, in 1/50 s at most */
+#define CGLOAD (60 * 50)
+#define CGUNLOAD (10 * 50)
 
 /* An ARexx crouton in a sequence: its script with the arguments its CommandLine tag holds, on its own. */
 static void run_script(struct rexxhost *h, const struct effect *e)
@@ -208,7 +212,7 @@ static void frame_page(struct switcher *sw, struct framestore *fs, struct effect
 #define FRAMEMICROS 20000
 #define SEQHOLD 100             /* Play: a crouton holds 2 s after its transition unless its Controls say otherwise */       /* monitor refresh during a transition */
 
-static const char version[] __attribute__((used)) = "$VER: Switcher 0.7.1 (18.11.2026)";
+static const char version[] __attribute__((used)) = "$VER: Switcher 0.8 (19.11.2026)";
 
 /* Put a rectangle of the interface display (all of it when rw is 0) into the window. */
 static void show_rect(struct Window *w, struct switcher *sw, int scale, uint32_t *sbuf, int rx, int ry, int rw, int rh)
@@ -428,7 +432,7 @@ static LONG ticks_now(void)
     return (ds.ds_Days - day0) * (24 * 60 * 60 * 50) + ds.ds_Minute * 60 * 50 + ds.ds_Tick;
 }
 
-enum { A_FILE, A_SCALE, A_IN1, A_IN2, A_IN3, A_IN4, A_DV1, A_DV2, A_STATS, A_PROJECT, NARGS };
+enum { A_FILE, A_SCALE, A_IN1, A_IN2, A_IN3, A_IN4, A_DV1, A_DV2, A_STATS, A_PROJECT, A_CG, NARGS };
 
 int main(void)
 {
@@ -466,6 +470,9 @@ int main(void)
     struct rxeout rxe;
     int rxewaits = 0;                   /* 1: for its answer, 2: for the sequence it started to end */
     int rxrow = -1, rxindex = 0;        /* a button an ARexx call presses */
+    int cgwait = 0;                     /* its answer waits for the CG: 1 to be loaded, 2 to have gone */
+    long cguntil = 0;
+    const char *cgnamed;                /* CG=: the titler's program */
     int autoto = MIXMAX;                /* where the running transition ends: MIXMAX, or 0 for one taken back */
     long framebase;
     uint8_t *exe;
@@ -473,7 +480,8 @@ int main(void)
 
     memset(args, 0, sizeof(args));
     memset(&sw, 0, sizeof(sw));
-    rda = ReadArgs((CONST_STRPTR)"FILE,SCALE/N,IN1/K,IN2/K,IN3/K,IN4/K,DV1/K,DV2/K,STATS/S,PROJECT/K", args, NULL);
+    rda = ReadArgs((CONST_STRPTR)"FILE,SCALE/N,IN1/K,IN2/K,IN3/K,IN4/K,DV1/K,DV2/K,STATS/S,PROJECT/K,CG/K", args, NULL);
+    cgnamed = (const char *)args[A_CG];
     file = args[A_FILE] ? (const char *)args[A_FILE] : "Toaster:Programs/Switcher.main.AA";
     if (args[A_SCALE]) scale = *(LONG *)args[A_SCALE];
     inputprefs_default(&prefs);
@@ -763,6 +771,21 @@ int main(void)
                 title_monitors(mon, in, &prefs, sw.row[ROW_MAIN].hilite, sw.row[ROW_PRVW].hilite);
                 redraw = 1;
                 break;
+            case RXA_LDCG:
+                if (!cg_loaded()) {
+                    char path[256];
+                    if (cg_find(cgnamed, path, sizeof(path)) && cg_start(path)) {
+                        cgwait = 1;
+                        cguntil = ticks_now() + CGLOAD;
+                    } else rxo.rc = 10;
+                }
+                break;
+            case RXA_DPCG:
+                if (cg_loaded() && rexx_send(rxsw, CG_PORT, CG_UNLOAD)) {
+                    cgwait = 2;
+                    cguntil = ticks_now() + CGUNLOAD;
+                }
+                break;
             case RXA_QUIT:
                 done = 1;
                 break;
@@ -877,14 +900,22 @@ int main(void)
                     if (i == EB_DELETE && idle) delete_crouton(&sw, sw.fxsel, &ovl);
                     else if (i == EB_CLONE && idle) clone_crouton(&sw, sw.fxsel, &ovl);
                     else if ((i == EB_TOOLS || i == EB_PROGRAMS) && idle) {
-                        /* what scripts added to them, and for Tools the files to add as croutons */
+                        /* what scripts added to them; before it for Tools the files to add as croutons, for
+                           Programs the CG when there is one */
                         const char *names[26] = { "Add croutons..." };
+                        char cgpath[256];
                         int tools = i == EB_TOOLS, list = tools ? RXL_TOOLS : RXL_PROGRAMS;
-                        int n = rxedit_list(list, names + tools, 25), k = 0;
+                        int cg = !tools && (cg_loaded() || cg_find(cgnamed, cgpath, sizeof(cgpath)));
+                        int own = tools + cg, n = rxedit_list(list, names + own, 25), k = 0;
                         struct rxedit st = { &sw, &ovl, w, rxed, speedticks, SEQHOLD };
-                        if (n) k = req_choose(w, tools ? "Tools" : "Programs", names, n + tools);
+                        if (cg) names[0] = "CG";
+                        if (n) k = req_choose(w, tools ? "Tools" : "Programs", names, n + own);
                         if (tools && k == 0) ask_croutons(w);
-                        else if (n && k >= tools) rxedit_start(&st, list, k - tools);
+                        else if (cg && k == 0) {            /* entered when it is loaded, loaded when not */
+                            if (cg_loaded()) rexx_send(rxsw, CG_PORT, CG_SELECT);
+                            else if (cg_find(cgnamed, cgpath, sizeof(cgpath))) cg_start(cgpath);
+                        }
+                        else if (n && k >= own) rxedit_start(&st, list, k - own);
                     }
                     else if (i == EB_SAVE) ask_project(w);
                     else if (i == EB_CONTROLS && idle && sw.fxsel >= 0) {
@@ -1036,7 +1067,14 @@ int main(void)
             rxewaits = 0;
             Signal(FindTask(NULL), 1UL << sigbit);
         }
-        if (rxfrom && !tbarupdate_pending && !autostart && ticks_now() >= rxo.until) {
+        if (rxfrom && cgwait) {         /* the CG's port says when it is loaded and when it has gone */
+            if (cg_loaded() == (cgwait == 1)) cgwait = 0;
+            else if (ticks_now() >= cguntil) {
+                rxo.rc = 10;
+                cgwait = 0;
+            }
+        }
+        if (rxfrom && !cgwait && !tbarupdate_pending && !autostart && ticks_now() >= rxo.until) {
             rexx_reply(&rxcall, rxo.rc, rxo.rc2, rxo.text);
             rxfrom = NULL;
             Signal(FindTask(NULL), 1UL << sigbit);      /* on to the next call */

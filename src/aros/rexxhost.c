@@ -84,18 +84,18 @@ void rexx_reply(struct rexxcall *c, long rc, long rc2, const char *result)
     c->msg = NULL;
 }
 
-int rexx_run(struct rexxhost *h, const char *cmd)
+static int command(struct rexxhost *h, const char *port, const char *cmd, LONG flags)
 {
     struct MsgPort *rexx;
     struct RexxMsg *rm;
     if (!h || !(rm = CreateRexxMsg(h->port, (UBYTE *)"rexx", (UBYTE *)h->name))) return 0;
-    rm->rm_Action = RXCOMM | RXFF_NOIO;
+    rm->rm_Action = RXCOMM | flags;
     if (!(rm->rm_Args[0] = (IPTR)CreateArgstring((UBYTE *)cmd, strlen(cmd)))) {
         DeleteRexxMsg(rm);
         return 0;
     }
     Forbid();
-    if ((rexx = FindPort((CONST_STRPTR)"REXX"))) PutMsg(rexx, &rm->rm_Node);
+    if ((rexx = FindPort((CONST_STRPTR)port))) PutMsg(rexx, &rm->rm_Node);
     Permit();
     if (!rexx) {
         DeleteArgstring((UBYTE *)rm->rm_Args[0]);
@@ -104,6 +104,16 @@ int rexx_run(struct rexxhost *h, const char *cmd)
     }
     h->macros++;
     return 1;
+}
+
+int rexx_run(struct rexxhost *h, const char *cmd)
+{
+    return command(h, "REXX", cmd, RXFF_NOIO);
+}
+
+int rexx_send(struct rexxhost *h, const char *port, const char *cmd)
+{
+    return command(h, port, cmd, 0);
 }
 
 /* Off the public list first; then the macros still running are waited for, their calls to this port failing. */

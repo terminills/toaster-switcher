@@ -1,4 +1,4 @@
-Video Toaster Switcher for AROS                                      0.7.1 (18.11.2026)
+Video Toaster Switcher for AROS                                        0.8 (19.11.2026)
 =========================================================================================
 
 NewTek's Video Toaster 4.x switcher, running natively on AROS (x86_64 and i386) without the
@@ -29,7 +29,7 @@ What you need
 Starting
 --------
   Switcher [FILE <switcher program>] [SCALE <1|2>] [IN1..IN4 <stream>] [DV1|DV2 <stream>]
-           [PROJECT <project>] [STATS]
+           [PROJECT <project>] [CG <program>] [STATS]
 
   SCALE 2 doubles the panel when the screen has room for it and the monitors beside it.
   A stream is "vhi:uvc:<n>" (USB camera or capture device n, the first is 0), "file:<path>:0",
@@ -63,7 +63,7 @@ The panel
 CG pages
 --------
   A page of the Toaster's character generator is a crouton. Tools, "Add croutons...", takes
-  the file ToasterCG for AROS (1.0 RC7, https://github.com/terminills/toastercg-aros) writes
+  the file ToasterCG for AROS (https://github.com/terminills/toastercg-aros) writes
   with Save Page; a script adds one with CROUTONLOAD <file>. What a page does as the
   selected crouton depends on its kind:
 
@@ -77,11 +77,35 @@ CG pages
                            any transition. LIVE releases it.
 
   Play holds a page for the time it carries, a scroll or crawl for as long as it takes.
-  ARexx's FMLD takes a page's file as a picture too, and CKCG says whether the CG is loaded.
+  ARexx's FMLD takes a page's file as a picture too.
 
   Key pages and frames saved by NewTek's own CG (the framestore's own 16 or 18 planes) are
   read as well. Its scroll and crawl files are not, and are not added: they hold glyphs and
   lines for code of the Toaster that was not released.
+
+
+The CG
+------
+  The character generator is ToasterCG for AROS (1.0 RC8 or later,
+  https://github.com/terminills/toastercg-aros), a program of its own. Unpack its archive
+  beside the Switcher or into Toaster: - the Switcher looks for ToasterCG/CG in its own
+  drawer, then in Toaster: and Toaster:Programs - or name the program with CG <program>.
+
+  Programs, on the edit bar, has the entry CG when the CG is loaded or its program was found:
+  it loads the CG, or brings a loaded one to the front. In the CG, Esc and the Switcher
+  gadget come back to the Switcher; the CG stays loaded, as on the Toaster.
+
+  Take (F10) in the CG puts its page on Program while the Switcher runs: a key page keyed
+  over Main, a scroll or crawl moving over it, a framestore page taken to Main. A key or
+  click in the CG, or the end of a scroll or crawl, takes it off again, and the Switcher is
+  as before. For that time the page is the project's last crouton. While the Switcher does
+  not answer (a project is playing, one of its lists is open) the Take stays in the CG's
+  window.
+
+  ARexx: CKCG says whether the CG is loaded; LDCG loads it and answers when it is (return
+  code 10 when there is no program or it has not come up in 60 seconds); DPCG unloads it and
+  answers when it has gone - a book that was changed is not asked about. GOCG does nothing,
+  as on the Toaster. The CG that is running when the Switcher quits stays.
 
 
 Inputs and Outputs window
@@ -169,8 +193,8 @@ Known limits
   * ALGO effects are drawn from their parameters; a few behaviours are reconstructed, not taken
     from NewTek's code (mode 5 effects run out and back in). The 10/12-plane bars, "art card
     key" and the glitch/kinescope overlays fall back to a dissolve or do nothing.
-  * All, Views and play on Preview are not functional. Programs lists only what a script
-    added with ADDPROGRAM; the Toaster's own programs are not started from it.
+  * All, Views and play on Preview are not functional. Programs lists the CG and what a
+    script added with ADDPROGRAM; the Toaster's other programs are not started from it.
   * Camera sound comes from the camera's own USB audio (its AHI recording mode, e.g. "UGREEN
     Camera 2K: 16 bit stereo++"). It was not tested with this release.
 
